@@ -1,6 +1,6 @@
 package io.github.arainko.torrenties.infrastructure
 
-import io.github.arainko.torrenties.domain.model._
+import io.github.arainko.torrenties.domain.models.torrent._
 import rainko.bencode._
 import rainko.bencode.syntax._
 import scodec.bits.ByteVector
@@ -12,7 +12,7 @@ import java.nio.charset.StandardCharsets
 import io.github.arainko.torrenties.domain.services.Tracker
 
 object BencodeDecoderSpec extends DefaultRunnableSpec {
-  import io.github.arainko.torrenties.infrastructure.codecs._
+  import io.github.arainko.torrenties.domain.codecs.bencode._
 
   private val singleFileInfo =
     Bencode.fromFields(
@@ -131,7 +131,8 @@ object BencodeDecoderSpec extends DefaultRunnableSpec {
           torrentFile <- ZStream.fromResource("debian.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
           parsed      <- ZIO.fromEither(Bencode.parse(torrentFile))
           torrent <- ZIO.fromEither(parsed.cursor.as[TorrentFile])
-          _ <- Tracker.pingTracker(torrent)
+          response <- Tracker.announce(torrent)
+          _ = println(response)
         } yield assertCompletes
       }.provideCustomLayer(Tracker.live)
     )

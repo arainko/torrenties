@@ -10,6 +10,7 @@ lazy val torrenties = (project in file("."))
     semanticdbVersion := scalafixSemanticdb.revision,
     libraryDependencies ++= Seq(
       "io.github.arainko"             %% "bencode"                       % "0.0.7+3-64e44a23",
+      "io.scalaland"                  %% "chimney"                       % "0.6.1",
       "org.scodec"                    %% "scodec-core"                   % "1.11.7",
       "io.circe"                      %% "circe-core"                    % "0.14.0-M4",
       "com.softwaremill.sttp.client3" %% "core"                          % "3.1.7",
