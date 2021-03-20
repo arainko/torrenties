@@ -1,4 +1,5 @@
 val zioVersion = "1.0.4"
+val fs2Version = "2.5.3"
 
 lazy val torrenties = (project in file("."))
   .settings(
@@ -9,7 +10,10 @@ lazy val torrenties = (project in file("."))
     semanticdbEnabled := true,
     semanticdbVersion := scalafixSemanticdb.revision,
     libraryDependencies ++= Seq(
-      "io.github.arainko"             %% "bencode"                       % "0.0.7+3-64e44a23",
+      "io.github.arainko"             %% "bencode"                       % "0.1.0",
+      "co.fs2"                        %% "fs2-core"                      % fs2Version,
+      "co.fs2"                        %% "fs2-io"                        % fs2Version,
+      "org.scodec"                    %% "scodec-stream"                 % "2.0.0",
       "io.scalaland"                  %% "chimney"                       % "0.6.1",
       "org.scodec"                    %% "scodec-core"                   % "1.11.7",
       "io.circe"                      %% "circe-core"                    % "0.14.0-M4",
@@ -17,6 +21,7 @@ lazy val torrenties = (project in file("."))
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % "3.1.7",
       "io.github.kitlangton"          %% "zio-magic"                     % "0.1.11",
       "dev.zio"                       %% "zio-nio"                       % "1.0.0-RC10",
+      "dev.zio"                       %% "zio-interop-cats"              % "2.3.1.0",
       "dev.zio"                       %% "zio"                           % zioVersion,
       "dev.zio"                       %% "zio-test"                      % zioVersion % "test",
       "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % "test",
