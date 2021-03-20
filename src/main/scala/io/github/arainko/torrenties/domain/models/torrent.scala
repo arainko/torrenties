@@ -1,19 +1,30 @@
 package io.github.arainko.torrenties.domain.models
 
+import io.github.arainko.torrenties.domain.codecs.Binary._
 import io.github.arainko.torrenties.domain.codecs.bencode._
-import io.github.arainko.torrenties.domain.codecs.binary._
 import io.github.arainko.torrenties.domain.models.network._
-import rainko.bencode.syntax._
 import io.scalaland.chimney.dsl._
+import io.github.arainko.bencode.syntax._
 import scodec.bits.ByteVector
 
 import java.time.{Duration, LocalDate}
 
 object torrent {
+  final case class Seeders(value: Long)  extends AnyVal
+  final case class Leechers(value: Long) extends AnyVal
+  final case class InfoHash(value: ByteVector) extends AnyVal
+  final case class PeerId(value: ByteVector) extends AnyVal
+
+  object PeerId {
+    val default: PeerId = PeerId {
+      ByteVector.view("-TRTS01-".getBytes).padRight(20)
+    }
+  }
+
   final case class Subfile(length: Long, path: Seq[String])
 
   sealed trait Info {
-    lazy val infoHash: ByteVector = this.encode.byteify().digest("SHA-1")
+    lazy val infoHash: InfoHash = InfoHash(this.asBencode.byteify().digest("SHA-1"))
   }
 
   object Info {
@@ -47,33 +58,30 @@ object torrent {
       .filter(_.startsWith("http"))
   }
 
-  final case class Seeders(value: Long)  extends AnyVal
-  final case class Leechers(value: Long) extends AnyVal
-
-  final case class AnnounceResponseRaw(
+  final case class AnnounceResponse(
     interval: Long,
     complete: Option[Long],
     incomplete: Option[Long],
     peers: ByteVector
   ) {
 
-    lazy val ips: Seq[IP] = List.unfold(peers.bits) { bits =>
+    lazy val ips: Seq[PeerAddress] = List.unfold(peers.bits) { bits =>
       ip.decode(bits).toOption.map(r => r.value -> r.remainder)
     }
 
-    def toDomain: AnnounceResponse =
+    def toDomain: Announce =
       this
-        .into[AnnounceResponse]
+        .into[Announce]
         .withFieldComputed(_.interval, r => Duration.ofSeconds(r.interval))
         .withFieldComputed(_.peers, _.ips)
         .transform
 
   }
 
-  final case class AnnounceResponse(
+  final case class Announce(
     interval: Duration,
     complete: Option[Seeders],
     incomplete: Option[Leechers],
-    peers: Seq[IP]
-  ) {}
+    peers: Seq[PeerAddress]
+  )
 }

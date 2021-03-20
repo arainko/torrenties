@@ -1,8 +1,8 @@
 package io.github.arainko.torrenties.domain.codecs
 
-import rainko.bencode._
-import rainko.bencode.syntax._
-import rainko.bencode.derivation.semiauto._
+import io.github.arainko.bencode._
+import io.github.arainko.bencode.syntax._
+import io.github.arainko.bencode.derivation.semiauto._
 import io.github.arainko.torrenties.domain.models.torrent._
 
 object bencode {
@@ -15,8 +15,8 @@ object bencode {
   implicit val multipleFileInfoDecoder: Decoder[Info.MultipleFile] = deriveDecoder
   implicit val multipleFileInfoEncoder: Encoder[Info.MultipleFile] = deriveEncoder
 
-  implicit val announceResponseDecoder: Decoder[AnnounceResponse] =
-    deriveDecoder[AnnounceResponseRaw].map(_.toDomain)
+  implicit val announceResponseDecoder: Decoder[Announce] =
+    deriveDecoder[AnnounceResponse].map(_.toDomain)
 
   implicit val infoDecoder: Decoder[Info] =
     List[Decoder[Info]](
@@ -27,8 +27,8 @@ object bencode {
       .withFieldsRenamed { case "piece length" => "pieceLength" }
 
   private val infoEncoder: Encoder[Info] = {
-    case i: Info.SingleFile   => i.encode
-    case i: Info.MultipleFile => i.encode
+    case i: Info.SingleFile   => i.asBencode
+    case i: Info.MultipleFile => i.asBencode
   }
 
   implicit val infoEncoderTransformed: Encoder[Info] =

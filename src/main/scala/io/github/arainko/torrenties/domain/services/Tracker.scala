@@ -1,9 +1,11 @@
 package io.github.arainko.torrenties.domain.services
 
+import cats.syntax.all._
+import io.github.arainko.torrenties.domain.codecs.bencode._
+import io.github.arainko.torrenties.domain.models.errors._
 import io.github.arainko.torrenties.domain.models.torrent.Info._
 import io.github.arainko.torrenties.domain.models.torrent._
-import io.github.arainko.torrenties.domain.models.errors._
-import io.github.arainko.torrenties.domain.codecs.bencode._
+import io.github.arainko.bencode.{Bencode, BencodeError}
 import scodec.bits._
 import sttp.client3._
 import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
@@ -13,16 +15,11 @@ import zio.macros.accessible
 
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import rainko.bencode.Bencode
-import rainko.bencode.BencodeError
-import cats.syntax.bifunctor._
-import cats.instances.either._
-
 @accessible
 object Tracker {
 
   trait Service {
-    def announce(torrent: TorrentFile): IO[TrackerError, Bencode]
+    def announce(torrent: TorrentFile): IO[TrackerError, Announce]
   }
 
   val live: ULayer[Has[Service]] = ZLayer.succeed {
@@ -36,7 +33,7 @@ object Tracker {
 
       private def announceRequests(torrent: TorrentFile) = {
         val urls     = torrent.httpAnnounces
-        val infoHash = urlEncoded(torrent.info.infoHash)
+        val infoHash = urlEncoded(torrent.info.infoHash.value)
         val length = torrent.info match {
           case SingleFile(pieceLength, pieces, name, length)  => length
           case MultipleFile(pieceLength, pieces, name, files) => files.foldLeft(0L)(_ + _.length)
@@ -64,7 +61,7 @@ object Tracker {
           )
       }
 
-      def announce(torrent: TorrentFile): IO[TrackerError, Bencode] =
+      def announce(torrent: TorrentFile): IO[TrackerError, Announce] =
         AsyncHttpClientZioBackend
           .managed()
           .use { backend =>
@@ -76,12 +73,10 @@ object Tracker {
                     .map(_.body)
                     .mapError(e => TrackerError.TrackerFailure(e.getMessage))
                     .flatMap(r => ZIO.fromEither(r.leftMap(e => TrackerError.MalformedBencode(e.message))))
-                  decoded <- ZIO.fromEither(bencode.cursor.as[AnnounceResponse]).mapError {
-                    case BencodeError.FieldMissing         => TrackerError.MalformedBencode("A field is missing")
+                  decoded <- ZIO.fromEither(bencode.cursor.as[Announce]).mapError {
                     case BencodeError.UnexpectedValue(msg) => TrackerError.MalformedBencode(msg)
                   }
-                  _ = println(decoded)
-                } yield bencode
+                } yield decoded
               }
               .reduceLeftOption(_.orElse(_))
               .getOrElse(ZIO.fail(TrackerError.NoHttpAnnounces))

@@ -1,8 +1,8 @@
 package io.github.arainko.torrenties.infrastructure
 
 import io.github.arainko.torrenties.domain.models.torrent._
-import rainko.bencode._
-import rainko.bencode.syntax._
+import io.github.arainko.bencode._
+import io.github.arainko.bencode.syntax._
 import scodec.bits.ByteVector
 import zio.test._
 import zio.test.Assertion._
@@ -122,18 +122,9 @@ object BencodeDecoderSpec extends DefaultRunnableSpec {
           torrentFile <- ZStream.fromResource("ubuntu.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
           parsed      <- ZIO.fromEither(Bencode.parse(torrentFile))
           info = parsed.cursor.field("info").as[Info]
-          encoded = info.map(_.encode.byteify())
+          encoded = info.map(_.asBencode.byteify())
           parsedBack = encoded.flatMap(bytes => Bencode.parse(bytes).flatMap(_.cursor.as[Info]))
         } yield assert(parsedBack)(equalTo(info))
-      },
-      testM("asd") {
-        for {
-          torrentFile <- ZStream.fromResource("debian.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
-          parsed      <- ZIO.fromEither(Bencode.parse(torrentFile))
-          torrent <- ZIO.fromEither(parsed.cursor.as[TorrentFile])
-          response <- Tracker.announce(torrent)
-          _ = println(response)
-        } yield assertCompletes
-      }.provideCustomLayer(Tracker.live)
+      }
     )
 }
