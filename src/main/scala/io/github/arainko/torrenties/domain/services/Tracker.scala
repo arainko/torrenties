@@ -50,6 +50,7 @@ object Tracker {
         private def announceRequests(torrent: TorrentFile) = {
           val urls     = torrent.httpAnnounces
           val infoHash = urlEncoded(torrent.info.infoHash.value)
+          val peerId = urlEncoded(PeerId.default.value)
           val length = torrent.info match {
             case SingleFile(pieceLength, pieces, name, length)  => length
             case MultipleFile(pieceLength, pieces, name, files) => files.foldLeft(0L)(_ + _.length)
@@ -57,7 +58,6 @@ object Tracker {
 
           //TODO: Add config with download folder then fetch uploaded/downloaded/corrupt etc.
           val params = Map(
-            "peer_id"    -> "-TT0000-k8hj0wgej6ch",
             "port"       -> "6881",
             "uploaded"   -> "0",
             "downloaded" -> "0",
@@ -71,6 +71,9 @@ object Tracker {
               uri"${torrent.announce}"
                 .addQuerySegment(
                   Uri.QuerySegment.KeyValue("info_hash", infoHash, valueEncoding = identity)
+                )
+                .addQuerySegment(
+                  Uri.QuerySegment.KeyValue("peer_id", peerId, valueEncoding = identity)
                 )
                 .addParams(params)
             }
