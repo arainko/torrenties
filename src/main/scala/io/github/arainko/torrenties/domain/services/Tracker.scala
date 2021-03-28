@@ -1,23 +1,23 @@
 package io.github.arainko.torrenties.domain.services
 
 import cats.syntax.all._
+import io.github.arainko.bencode.BencodeError._
+import io.github.arainko.bencode._
+import io.github.arainko.torrenties._
 import io.github.arainko.torrenties.domain.codecs.bencode._
 import io.github.arainko.torrenties.domain.models.errors.TrackerError
 import io.github.arainko.torrenties.domain.models.errors.TrackerError._
 import io.github.arainko.torrenties.domain.models.torrent.Info._
 import io.github.arainko.torrenties.domain.models.torrent._
-import io.github.arainko.torrenties._
-import io.github.arainko.bencode._
-import io.github.arainko.bencode.BencodeError._
 import scodec.bits._
 import sttp.client3._
+import sttp.client3.asynchttpclient.zio.SttpClient
 import sttp.model.Uri
 import zio._
 import zio.macros.accessible
 
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import sttp.client3.asynchttpclient.zio.SttpClient
 
 @accessible
 object Tracker {

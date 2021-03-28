@@ -3,6 +3,7 @@ package io.github.arainko.torrenties.domain.models
 import io.github.arainko.torrenties.domain.models.network.PeerMessage._
 import io.github.arainko.torrenties.domain.models.torrent._
 import scodec.bits.ByteVector
+import scodec.bits.BitVector
 
 object network {
   final case class IPAddress(value: String)          extends AnyVal
@@ -24,7 +25,7 @@ object network {
   final case class PeerAddress(seg1: Segment, seg2: Segment, seg3: Segment, seg4: Segment, port: Port) {
     lazy val address: IPAddress = IPAddress(s"${seg1.value}.${seg2.value}.${seg3.value}.${seg4.value}")
 
-    def show: String = s"${seg1.value}.${seg2.value}.${seg3.value}.${seg4.value}:${port.value}"
+    override def toString: String = s"${seg1.value}.${seg2.value}.${seg3.value}.${seg4.value}:${port.value}"
   }
 
   final case class Handshake(
@@ -52,7 +53,7 @@ object network {
 
   sealed trait PeerMessage {
 
-    final def totalLength: UInt32 =
+    final lazy val totalLength: UInt32 =
       this match {
         case KeepAlive          => UInt32(0)
         case Choke              => UInt32(1)
@@ -60,7 +61,7 @@ object network {
         case Interested         => UInt32(1)
         case NotInterested      => UInt32(1)
         case Have(_)            => UInt32(5)
-        case Bitfield(payload)  => UInt32(1 + payload.length)
+        case Bitfield(payload)  => UInt32(1 + payload.bytes.length)
         case Request(_, _, _)   => UInt32(13)
         case Piece(_, _, block) => UInt32(9 + block.length)
         case Cancel(_, _, _)    => UInt32(13)
@@ -80,7 +81,7 @@ object network {
 
     final case class Have(pieceIndex: UInt32) extends PeerMessage
 
-    final case class Bitfield(payload: ByteVector) extends PeerMessage
+    final case class Bitfield(payload: BitVector) extends PeerMessage
 
     final case class Request(pieceIndex: UInt32, begin: UInt32, length: UInt32) extends PeerMessage
 

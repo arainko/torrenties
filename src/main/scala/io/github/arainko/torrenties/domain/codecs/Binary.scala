@@ -1,13 +1,13 @@
 package io.github.arainko.torrenties.domain.codecs
 
 import io.github.arainko.torrenties.domain.models.network._
+import io.github.arainko.torrenties.domain.models.network.PeerMessage._
+import io.github.arainko.torrenties.domain.models.torrent._
 import scodec._
 import scodec.codecs._
-import java.nio.charset.Charset
+
 import java.nio.charset.StandardCharsets._
-import io.github.arainko.torrenties.domain.models.torrent._
 import scodec.bits.BitVector
-import scodec.bits.ByteVector
 
 object Binary {
   val segment: Codec[Segment] = uint8.as[Segment]
@@ -34,34 +34,41 @@ object Binary {
         id <- uint8
         payloadLength = (length - 1).toInt
         peerMessage <- id match {
-          case 0 => Decoder.point(PeerMessage.Choke)
-          case 1 => Decoder.point(PeerMessage.Unchoke)
-          case 2 => Decoder.point(PeerMessage.Interested)
-          case 3 => Decoder.point(PeerMessage.NotInterested)
-          case 4 => uint32t.as[PeerMessage.Have]
-          case 5 => bytesStrict(payloadLength).as[PeerMessage.Bitfield]
-          case 6 => (uint32t :: uint32t :: uint32t).as[PeerMessage.Request]
-          case 7 => (uint32t :: uint32t :: bytesStrict(payloadLength - 8)).as[PeerMessage.Piece]
-          case 8 => (uint32t :: uint32t :: uint32t).as[PeerMessage.Cancel]
+          case 0 => Decoder.point(Choke)
+          case 1 => Decoder.point(Unchoke)
+          case 2 => Decoder.point(Interested)
+          case 3 => Decoder.point(NotInterested)
+          case 4 => uint32t.as[Have]
+          case 5 => bytesStrict(payloadLength).map(_.bits).asDecoder.as[Bitfield]
+          case 6 => (uint32t :: uint32t :: uint32t).as[Request]
+          case 7 => (uint32t :: uint32t :: bytesStrict(payloadLength - 8)).as[Piece]
+          case 8 => (uint32t :: uint32t :: uint32t).as[Cancel]
         }
       } yield peerMessage
 
-  def peerMessageEnc: Encoder[PeerMessage] =
-    Encoder[PeerMessage] { message: PeerMessage =>
+  private val lengthAndId = uint32 ~ uint8
+
+  val peerMessageEnc: Encoder[PeerMessage] =
+    Encoder { message: PeerMessage =>
       message match {
-        case PeerMessage.KeepAlive          => uint32.encode(0)
-        case PeerMessage.Choke              => (uint32 ~ uint8).encode(4L -> 1)
-        case PeerMessage.Unchoke            => (uint32 ~ uint8).encode(4L -> 2)
-        case PeerMessage.Interested         => (uint32 ~ uint8).encode(4L -> 2)
-        case PeerMessage.NotInterested      => (uint32 ~ uint8).encode(4L -> 3)
-        case PeerMessage.Have(index)        => uint32t.encode(index)
-        case PeerMessage.Bitfield(bitfield) => bytes.encode(bitfield)
-        case m @ PeerMessage.Request(_, _, _) =>
-          (uint32t :: uint32t :: uint32t).as[PeerMessage.Request].encode(m)
-        case m @ PeerMessage.Piece(_, _, _) =>
-          (uint32t :: uint32t :: bytes).as[PeerMessage.Piece].encode(m)
-        case m @ PeerMessage.Cancel(_, _, _) =>
-          (uint32t :: uint32t :: uint32t).as[PeerMessage.Cancel].encode(m)
+        case KeepAlive     => uint32.encode(0)
+        case Choke         => lengthAndId.encode(4L -> 1)
+        case Unchoke       => lengthAndId.encode(4L -> 2)
+        case Interested    => lengthAndId.encode(4L -> 2)
+        case NotInterested => lengthAndId.encode(4L -> 3)
+        case Have(index)   => (lengthAndId ~ uint32t).encode(5L -> 4 -> index)
+        case m: Bitfield =>
+          (lengthAndId ~ codecs.bits)
+            .encode(m.totalLength.value -> 5 -> m.payload)
+        case m: Request =>
+          (lengthAndId ~ (uint32t :: uint32t :: uint32t).as[Request])
+            .encode(m.totalLength.value -> 6 -> m)
+        case m: Piece =>
+          (lengthAndId ~ (uint32t :: uint32t :: bytes).as[Piece])
+            .encode(m.totalLength.value -> 7 -> m)
+        case m: Cancel =>
+          (lengthAndId ~ (uint32t :: uint32t :: uint32t).as[Cancel])
+            .encode(m.totalLength.value -> 8 -> m)
       }
     }
 }
