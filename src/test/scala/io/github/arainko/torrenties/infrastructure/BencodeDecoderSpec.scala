@@ -1,15 +1,13 @@
 package io.github.arainko.torrenties.infrastructure
 
-import io.github.arainko.torrenties.domain.models.torrent._
 import io.github.arainko.bencode._
 import io.github.arainko.bencode.syntax._
+import io.github.arainko.torrenties.domain.models.torrent._
 import scodec.bits.ByteVector
-import zio.test._
-import zio.test.Assertion._
-import zio.stream.ZStream
 import zio.ZIO
-import java.nio.charset.StandardCharsets
-import io.github.arainko.torrenties.domain.services.Tracker
+import zio.stream.ZStream
+import zio.test.Assertion._
+import zio.test._
 
 object BencodeDecoderSpec extends DefaultRunnableSpec {
   import io.github.arainko.torrenties.domain.codecs.bencode._
