@@ -16,4 +16,6 @@ object errors {
   final case class SerializationError(message: String) extends ApplicationError
 
   final case class PeerMessageError(message: String) extends ApplicationError
+
+  case object PeerNotFound extends ApplicationError
 }

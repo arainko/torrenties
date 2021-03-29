@@ -1,8 +1,8 @@
 package io.github.arainko.torrenties.domain.codecs
 
 import io.github.arainko.bencode._
-import io.github.arainko.bencode.syntax._
 import io.github.arainko.bencode.derivation.semiauto._
+import io.github.arainko.bencode.syntax._
 import io.github.arainko.torrenties.domain.models.torrent._
 
 object bencode {
