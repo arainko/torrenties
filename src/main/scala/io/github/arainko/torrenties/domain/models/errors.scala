@@ -13,9 +13,13 @@ object errors {
     final case class TrackerFailure(message: String) extends TrackerError
   }
 
-  final case class SerializationError(message: String) extends ApplicationError
+  final case class SerializationError(message: String) extends ApplicationError {
+    override def getMessage(): String = message
+  }
 
-  final case class PeerMessageError(message: String) extends ApplicationError
+  final case class PeerMessageError(message: String) extends ApplicationError  {
+    override def getMessage(): String = message
+  }
 
   case object PeerNotFound extends ApplicationError
 }

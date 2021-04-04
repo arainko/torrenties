@@ -36,7 +36,7 @@ object Tracker {
       private def announceRequests(torrent: TorrentFile) = {
         val urls     = torrent.httpAnnounces
         val infoHash = urlEncoded(torrent.info.infoHash.value)
-        val peerId = urlEncoded(PeerId.default.value)
+        val peerId   = urlEncoded(PeerId.default.value)
         val length = torrent.info match {
           case SingleFile(pieceLength, pieces, name, length)  => length
           case MultipleFile(pieceLength, pieces, name, files) => files.foldLeft(0L)(_ + _.length)
@@ -62,7 +62,11 @@ object Tracker {
               .addParams(params)
           }
           .map(uri =>
-            basicRequest.get(uri).response(asByteArrayAlways).mapResponse(ByteVector.view).mapResponse(Bencode.parse(_))
+            basicRequest
+              .get(uri)
+              .response(asByteArrayAlways)
+              .mapResponse(ByteVector.view)
+              .mapResponse(Bencode.parse(_))
           )
       }
 

@@ -5,17 +5,18 @@ import io.github.arainko.torrenties.domain.models.network._
 import io.github.arainko.torrenties.domain.models.state._
 import io.github.arainko.torrenties.domain.models.torrent._
 import zio._
+import zio.logging._
 
 import scala.annotation.nowarn
 import zio.logging.Logger
 import zio.logging.Logging
 import zio.logging.LogAnnotation
+import java.time.OffsetDateTime
 
 object Client {
 
   def start(torrentFile: TorrentFile) =
     for {
-      logger   <- ZIO.service[Logger[String]]
       announce <- Tracker.announce(torrentFile)
       // _ = torrentFile.info.fold(a => a.piece, a => a.pieceLength)
       workPieces = torrentFile.info.fold(
@@ -27,15 +28,20 @@ object Client {
       _           <- workQueue.offerAll(workPieces)
       peerState   <- PeerInfo.make(announce.peers, workPieces.size.toLong)
       fibers <- ZIO.foreach(announce.peers) { peer =>
-        println(s"Started $peer")
-        Logging.locally(context => context.annotate(LogAnnotation.Name, peer.address.value :: Nil)) {
-          worker(torrentFile, peer, workQueue, peerState, logger).fork
+        logged(peer) {
+          log.debug(s"Starting $peer") *>
+            worker(torrentFile, peer, workQueue, peerState).fork
         }
       }
       _ <- workQueue.awaitShutdown
     } yield ()
 
-    ZManaged.scope
+  private def logged[R, E, A](peer: PeerAddress)(effect: ZIO[R, E, A]) =
+    Logging.locally { ctx =>
+      ctx
+        .annotate(LogAnnotation.Name, peer.address.value :: Nil)
+        .annotate(LogAnnotation.Timestamp, OffsetDateTime.now())
+    }(effect)
 
   @nowarn
   private def worker(
@@ -43,37 +49,16 @@ object Client {
     peer: PeerAddress,
     work: Queue[Work],
     state: PeerInfo,
-    logger: Logger[String]
   ) =
-    MessageSocket(peer, logger).use { socket =>
+    MessageSocket(peer).use { socket =>
       for {
         handshake <- socket.handshake(torrentFile)
-        // _         <- socket.writeMessage(PeerMessage.Unchoke)
         worker <- socket.readMessage
-          // .flatMap(m => dispatch(m, peer, state, socket))
-          // .forever
-          // .fork
+          .flatMap(m => dispatch(m, peer, state, socket).as(m))
+          .repeatUntil(_ == PeerMessage.Unchoke)
+          .tap(_ => log.debug(s"GOT UNCHOKE CAN GO FORWARD NOW"))
       } yield worker
     }
-
-  // private def communicationLoop(
-  //   workQueue: Queue[Work],
-  //   peer: PeerAddress,
-  //   state: Ref[Map[PeerAddress, PeerState]],
-  //   socket: AsynchronousSocketChannel
-  // ): ZIO[Any, Throwable, Unit] =
-  //   for {
-  //     length <- socket
-  //       .readChunk(4, Duration(2, TimeUnit.MINUTES))
-  //       .flatMap(uint32.decodeChunkM)
-  //       .map(_.value)
-  //     _ = println(s"polled $work")
-  //     message <- socket
-  //       .readChunk(length.toInt)
-  //       .flatMap(Binary.peerMessageDec(length).decodeSingleChunkM)
-  //     _ <- dispatch(message, work, peer, state, socket)
-  //     _ = println(s"Got $message")
-  //   } yield ()
 
   private def dispatch(
     message: PeerMessage,
@@ -81,7 +66,7 @@ object Client {
     state: PeerInfo,
     socket: MessageSocket
   ) =
-    message match {
+    (message match {
       case KeepAlive =>
         socket.writeMessage(KeepAlive)
       case Choke =>
@@ -99,5 +84,5 @@ object Client {
       case Request(pieceIndex, begin, length) => ZIO.unit
       case Piece(pieceIndex, begin, block)    => ZIO.unit
       case Cancel(pieceIndex, begin, length)  => ZIO.unit
-    }
+    }) *> state.state.get.map(_.apply(peer)).tap(state => log.debug(s"Peer state: $state"))
 }

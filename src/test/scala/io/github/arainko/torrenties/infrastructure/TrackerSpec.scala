@@ -22,10 +22,7 @@ object TrackerSpec extends DefaultRunnableSpec {
           torrentFile <- ZStream.fromResource("ubuntu.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
           parsed      <- ZIO.fromEither(Bencode.parse(torrentFile))
           torrent     <- ZIO.fromEither(parsed.cursor.as[TorrentFile])
-          // response    <- Tracker.announce(torrent)
           _ <- Client.start(torrent)
-          // _ <- ZIO.foreach(fibers)(_.join)
-          _ <- ZIO.sleep(duration.`package`.Duration.Infinity)
         } yield assertCompletes
       }
     ).provideCustomMagicLayer(

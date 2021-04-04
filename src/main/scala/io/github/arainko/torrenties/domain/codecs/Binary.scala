@@ -39,7 +39,7 @@ object Binary {
           case 2 => Decoder.point(Interested)
           case 3 => Decoder.point(NotInterested)
           case 4 => uint32t.as[Have]
-          case 5 => bytesStrict(payloadLength).map(_.bits).asDecoder.as[Bitfield]
+          case 5 => bytes(payloadLength).map(_.bits).asDecoder.as[Bitfield]
           case 6 => (uint32t :: uint32t :: uint32t).as[Request]
           case 7 => (uint32t :: uint32t :: bytesStrict(payloadLength - 8)).as[Piece]
           case 8 => (uint32t :: uint32t :: uint32t).as[Cancel]
