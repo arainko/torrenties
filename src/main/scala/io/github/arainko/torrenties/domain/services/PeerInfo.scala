@@ -28,6 +28,14 @@ final case class PeerInfo(state: Ref[Map[PeerAddress, PeerState]]) extends AnyVa
 
   import PeerInfo._
 
+  def hasPiece(peer: PeerAddress, index: Long): UIO[Boolean] =
+    state.get.map { s =>
+      s.focus()
+        .index(peer)
+        .getOption
+        .exists(_.hasPiece(index))
+    }
+
   def updatePeerInterest(peer: PeerAddress, interest: InterestState): UIO[Unit] =
     updateProperty(peer)(PeerState.peerInterestState)(interest)
 
@@ -37,8 +45,7 @@ final case class PeerInfo(state: Ref[Map[PeerAddress, PeerState]]) extends AnyVa
   def updatePeerChoke(peer: PeerAddress, choke: ChokeState): UIO[Unit] =
     updateProperty(peer)(PeerState.peerChokeState)(choke)
 
-  def updateChoke(peer: PeerAddress, choke: ChokeState): UIO[Unit] =
-    updateProperty(peer)(PeerState.chokeState)(choke)
+  def updateChoke(peer: PeerAddress, choke: ChokeState): UIO[Unit] = updateProperty(peer)(PeerState.chokeState)(choke)
 
   def updateBitfield(peer: PeerAddress, index: Long, value: Boolean) =
     state.update {

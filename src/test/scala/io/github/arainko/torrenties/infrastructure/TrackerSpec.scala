@@ -12,6 +12,9 @@ import zio.test.{DefaultRunnableSpec, ZSpec, _}
 import zio.{ZIO, duration}
 import zio.logging.Logging
 import zio.logging._
+import zio.test.environment.TestClock
+import zio.clock.Clock
+import zio.duration._
 
 object TrackerSpec extends DefaultRunnableSpec {
 
@@ -19,7 +22,7 @@ object TrackerSpec extends DefaultRunnableSpec {
     suite("costam")(
       testM("asd") {
         for {
-          torrentFile <- ZStream.fromResource("ubuntu.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
+          torrentFile <- ZStream.fromResource("debian.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
           parsed      <- ZIO.fromEither(Bencode.parse(torrentFile))
           torrent     <- ZIO.fromEither(parsed.cursor.as[TorrentFile])
           _ <- Client.start(torrent)
@@ -28,6 +31,7 @@ object TrackerSpec extends DefaultRunnableSpec {
     ).provideCustomMagicLayer(
       Logging.console(LogLevel.Debug),
       Tracker.live,
-      AsyncHttpClientZioBackend.layer().orDie
+      AsyncHttpClientZioBackend.layer().orDie,
+      // Clock.live
     )
 }

@@ -12,6 +12,7 @@ import zio.logging.Logger
 import zio.logging.Logging
 import zio.logging.LogAnnotation
 import java.time.OffsetDateTime
+import zio.duration._
 
 object Client {
 
@@ -40,7 +41,7 @@ object Client {
     Logging.locally { ctx =>
       ctx
         .annotate(LogAnnotation.Name, peer.address.value :: Nil)
-        .annotate(LogAnnotation.Timestamp, OffsetDateTime.now())
+        .annotate(LogAnnotation.Timestamp, OffsetDateTime.now)
     }(effect)
 
   @nowarn
@@ -53,12 +54,21 @@ object Client {
     MessageSocket(peer).use { socket =>
       for {
         handshake <- socket.handshake(torrentFile)
+        polledWork <- work.take // Specify timeout here?
+        _ <- socket.writeMessage(Interested)
         worker <- socket.readMessage
           .flatMap(m => dispatch(m, peer, state, socket).as(m))
-          .repeatUntil(_ == PeerMessage.Unchoke)
-          .tap(_ => log.debug(s"GOT UNCHOKE CAN GO FORWARD NOW"))
+          .repeatUntil(_ == Unchoke)
+          .tap(_ => log.debug(s"Unchoked, requesting a piece..."))
+        _ <- state.hasPiece(peer, polledWork.index).tap(has => log.debug(s"$has"))
+        // _ <- ZIO.ifM(state.hasPiece(peer, polledWork.index))
+        _ <- socket.writeMessage(Unchoke)
+        _ <- socket.writeMessage(request(polledWork))
+        _ <- socket.readMessage
       } yield worker
     }
+
+  private def request(work: Work) = Request(UInt32(work.index), UInt32(0), UInt32(Math.pow(2, 14).toLong))
 
   private def dispatch(
     message: PeerMessage,
