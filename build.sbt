@@ -18,7 +18,7 @@ lazy val torrenties = (project in file("."))
       "io.circe"                      %% "circe-core"                    % "0.14.0-M4",
       "com.softwaremill.sttp.client3" %% "core"                          % "3.1.7",
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % "3.1.7",
-      "io.github.kitlangton"          %% "zio-magic"                     % "0.1.11",
+      "io.github.kitlangton"          %% "zio-magic"                     % "0.2.3",
       "dev.zio"                       %% "zio-nio"                       % "1.0.0-RC10",
       "dev.zio"                       %% "zio-interop-cats"              % "2.3.1.0",
       "dev.zio"                       %% "zio-logging"                   % "0.5.8",

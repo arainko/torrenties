@@ -1,8 +1,7 @@
 package io.github.arainko.torrenties.domain.models
 
-import scodec.bits.ByteVector
-import scodec.bits.BitVector
 import monocle.macros.Lenses
+import scodec.bits.{BitVector, ByteVector}
 
 object state {
 

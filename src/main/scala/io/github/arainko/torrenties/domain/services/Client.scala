@@ -1,18 +1,16 @@
 package io.github.arainko.torrenties.domain.services
 
+import io.github.arainko.torrenties.domain.models.errors
 import io.github.arainko.torrenties.domain.models.network.PeerMessage._
 import io.github.arainko.torrenties.domain.models.network._
 import io.github.arainko.torrenties.domain.models.state._
 import io.github.arainko.torrenties.domain.models.torrent._
 import zio._
-import zio.logging._
-
-import scala.annotation.nowarn
-import zio.logging.Logger
-import zio.logging.Logging
-import zio.logging.LogAnnotation
-import java.time.OffsetDateTime
+import zio.logging.{LogAnnotation, Logging, _}
 import zio.duration._
+
+import java.time.OffsetDateTime
+import scala.annotation.nowarn
 
 object Client {
 
@@ -62,9 +60,13 @@ object Client {
           .tap(_ => log.debug(s"Unchoked, requesting a piece..."))
         _ <- state.hasPiece(peer, polledWork.index).tap(has => log.debug(s"$has"))
         // _ <- ZIO.ifM(state.hasPiece(peer, polledWork.index))
-        _ <- socket.writeMessage(Unchoke)
+        // _ <- socket.writeMessage(Unchoke)
         _ <- socket.writeMessage(request(polledWork))
         _ <- socket.readMessage
+        // _ <- ZIO.sleep(5.seconds)
+        // _ <- socket.readMessage.repeatUntil(_ == Unchoke)
+        //   .tap(_ => log.debug(s"Unchoked, requesting a piece..."))
+
       } yield worker
     }
 
@@ -91,8 +93,8 @@ object Client {
         state.updateBitfield(peer, pieceIndex.value, true)
       case Bitfield(payload) =>
         state.setBitfield(peer, payload)
-      case Request(pieceIndex, begin, length) => ZIO.unit
-      case Piece(pieceIndex, begin, block)    => ZIO.unit
-      case Cancel(pieceIndex, begin, length)  => ZIO.unit
+      case Request(_, _, _) => ZIO.unit
+      case Piece(_, _, _)    => ZIO.unit
+      case Cancel(_, _, _)  => ZIO.unit
     }) *> state.state.get.map(_.apply(peer)).tap(state => log.debug(s"Peer state: $state"))
 }

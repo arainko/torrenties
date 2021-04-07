@@ -6,15 +6,11 @@ import io.github.arainko.torrenties.domain.models.torrent._
 import io.github.arainko.torrenties.domain.services.{Client, Tracker}
 import scodec.bits.ByteVector
 import sttp.client3.asynchttpclient.zio._
+import zio.ZIO
+import zio.logging.{Logging, _}
 import zio.magic._
 import zio.stream.ZStream
 import zio.test.{DefaultRunnableSpec, ZSpec, _}
-import zio.{ZIO, duration}
-import zio.logging.Logging
-import zio.logging._
-import zio.test.environment.TestClock
-import zio.clock.Clock
-import zio.duration._
 
 object TrackerSpec extends DefaultRunnableSpec {
 
