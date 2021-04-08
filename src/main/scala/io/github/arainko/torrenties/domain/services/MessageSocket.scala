@@ -7,6 +7,7 @@ import io.github.arainko.torrenties.domain.models.torrent._
 import io.github.arainko.torrenties.domain.syntax._
 import scodec.codecs._
 import zio._
+import zio.stream._
 import zio.duration._
 import zio.logging._
 import zio.nio.channels._
@@ -40,13 +41,24 @@ final case class MessageSocket(socket: AsynchronousSocketChannel, peer: PeerAddr
       )
   }
 
+  private def readFully(lenght: Int) =
+    Ref.make(lenght).flatMap { leftover =>
+      ZStream.repeatEffectChunkOption {
+        for {
+          left  <- leftover.get.filterOrFail(_ != 0)(None)
+          chunk <- socket.readChunk(left).mapError(Option.apply)
+          _     <- leftover.update(_ - chunk.length)
+        } yield chunk
+      }.runCollect
+    }
+
   def readMessage: Task[PeerMessage] = {
     for {
       length <- socket
         .readChunk(4, 2.minutes)
         .flatMap(uint32.decodeSingleChunkM)
-        .tap(length => logger.debug(s"Message with lenght $length incoming"))
-      chunk   <- socket.readChunk(length.toInt)
+        .tap(length => logger.debug(s"Message with lenght ${length.toInt} incoming"))
+      chunk   <- readFully(length.toInt)
       message <- Binary.peerMessageDec(length).decodeSingleChunkM(chunk)
     } yield message
   }

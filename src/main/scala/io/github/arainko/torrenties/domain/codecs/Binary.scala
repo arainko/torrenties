@@ -40,7 +40,7 @@ object Binary {
           case 4 => uint32t.as[Have]
           case 5 => bytes(payloadLength).map(_.bits).asDecoder.as[Bitfield]
           case 6 => (uint32t :: uint32t :: uint32t).as[Request]
-          case 7 => (uint32t :: uint32t :: bytesStrict(payloadLength - 8)).as[Piece]
+          case 7 => (uint32t :: uint32t :: bytes(payloadLength - 8)).as[Piece]
           case 8 => (uint32t :: uint32t :: uint32t).as[Cancel]
           case id => Decoder.liftAttempt(Attempt.failure(Err(s"Message with id = '$id' not supported")))
         }
