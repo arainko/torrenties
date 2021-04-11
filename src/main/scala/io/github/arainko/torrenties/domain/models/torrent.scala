@@ -4,13 +4,11 @@ import io.github.arainko.bencode.syntax._
 import io.github.arainko.torrenties.domain.codecs.Binary._
 import io.github.arainko.torrenties.domain.codecs.bencode._
 import io.github.arainko.torrenties.domain.models.network._
+import io.github.arainko.torrenties.domain.models.torrent.Info.{MultipleFile, SingleFile}
 import io.scalaland.chimney.dsl._
-import io.github.arainko.bencode.syntax._
 import scodec.bits.ByteVector
 
 import java.time.{Duration, LocalDate}
-import io.github.arainko.torrenties.domain.models.torrent.Info.SingleFile
-import io.github.arainko.torrenties.domain.models.torrent.Info.MultipleFile
 
 object torrent {
   final case class Seeders(value: Long)        extends AnyVal

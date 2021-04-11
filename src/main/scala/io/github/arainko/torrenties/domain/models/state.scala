@@ -1,7 +1,7 @@
 package io.github.arainko.torrenties.domain.models
 
-import scodec.bits.ByteVector
-import scodec.bits.BitVector
+import monocle.macros.Lenses
+import scodec.bits.{BitVector, ByteVector}
 
 object state {
 
@@ -19,7 +19,7 @@ object state {
     case object NotInterested extends InterestState
   }
 
-  final case class PeerState(
+  @Lenses final case class PeerState(
     chokeState: ChokeState,
     interestState: InterestState,
     peerChokeState: ChokeState,

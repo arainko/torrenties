@@ -2,8 +2,7 @@ package io.github.arainko.torrenties.domain.models
 
 import io.github.arainko.torrenties.domain.models.network.PeerMessage._
 import io.github.arainko.torrenties.domain.models.torrent._
-import scodec.bits.ByteVector
-import scodec.bits.BitVector
+import scodec.bits.{BitVector, ByteVector}
 
 object network {
   final case class IPAddress(value: String)          extends AnyVal

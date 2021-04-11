@@ -1,22 +1,16 @@
 package io.github.arainko.torrenties.domain.services
 
-import io.github.arainko.torrenties.domain.codecs._
-import io.github.arainko.torrenties.domain.models.errors._
-import io.github.arainko.torrenties.domain.models.network._
-import io.github.arainko.torrenties.domain.models.torrent._
-import io.github.arainko.torrenties.domain.models.state._
-import io.github.arainko.torrenties.domain.syntax._
-import scodec.codecs._
-import zio._
-import zio.duration.Duration
-import zio.nio.channels._
-import zio.nio.core.SocketAddress
-
-import java.util.concurrent.TimeUnit
-import scala.annotation.nowarn
-import io.github.arainko.torrenties.domain.models.torrent.Info._
+import io.github.arainko.torrenties.domain.models.errors
 import io.github.arainko.torrenties.domain.models.network.PeerMessage._
-import monocle.syntax.all._
+import io.github.arainko.torrenties.domain.models.network._
+import io.github.arainko.torrenties.domain.models.state._
+import io.github.arainko.torrenties.domain.models.torrent._
+import zio._
+import zio.logging.{LogAnnotation, Logging, _}
+import zio.duration._
+
+import java.time.OffsetDateTime
+import scala.annotation.nowarn
 
 object Client {
 
@@ -31,99 +25,76 @@ object Client {
       workQueue   <- Queue.bounded[Work](workPieces.size)
       resultQueue <- Queue.bounded[Work](workPieces.size) //TODO: Add Result type
       _           <- workQueue.offerAll(workPieces)
-      initialPeerState = announce.peers.map(_ -> PeerState.initial(workPieces.size.toLong)).toMap
-      peerState <- Ref.make(initialPeerState)
+      peerState   <- PeerInfo.make(announce.peers, workPieces.size.toLong)
       fibers <- ZIO.foreach(announce.peers) { peer =>
-        handshake(torrentFile, peer, workQueue, peerState)
+        logged(peer) {
+          log.debug(s"Starting $peer") *>
+            worker(torrentFile, peer, workQueue, peerState).fork
+        }
       }
       _ <- workQueue.awaitShutdown
     } yield ()
 
+  private def logged[R, E, A](peer: PeerAddress)(effect: ZIO[R, E, A]) =
+    Logging.locally { ctx =>
+      ctx
+        .annotate(LogAnnotation.Name, peer.address.value :: Nil)
+        .annotate(LogAnnotation.Timestamp, OffsetDateTime.now)
+    }(effect)
+
   @nowarn
-  private def handshake(
+  private def worker(
     torrentFile: TorrentFile,
     peer: PeerAddress,
     work: Queue[Work],
-    state: Ref[Map[PeerAddress, PeerState]]
+    state: PeerInfo,
   ) =
-    AsynchronousSocketChannel().use { socket =>
+    MessageSocket(peer).use { socket =>
       for {
-        address <- SocketAddress.inetSocketAddress(peer.address.value, peer.port.value)
-        _       <- socket.connect(address)
-        handshake = Handshake.withDefualts(torrentFile.info.infoHash, PeerId.default)
-        encodedHandshake <- Binary.handshake.encodeChunkM(handshake)
-        _                <- socket.writeChunk(encodedHandshake)
-        response <- socket
-          .readChunk(68, Duration(3, TimeUnit.SECONDS))
-          .flatMap(Binary.handshake.decodeChunkM)
-          .map(_.value)
-          .filterOrFail(_.infoHash == handshake.infoHash)(PeerMessageError("Bad handshake!"))
-        polledWork <- work.take
-        worker     <- communicationLoop(polledWork, work, peer, state, socket).forever.fork
+        handshake <- socket.handshake(torrentFile)
+        polledWork <- work.take // Specify timeout here?
+        _ <- socket.writeMessage(Interested)
+        worker <- socket.readMessage
+          .flatMap(m => dispatch(m, peer, state, socket).as(m))
+          .repeatUntil(_ == Unchoke)
+          .tap(_ => log.debug(s"Unchoked, requesting a piece..."))
+        _ <- state.hasPiece(peer, polledWork.index).tap(has => log.debug(s"$has"))
+        // _ <- ZIO.ifM(state.hasPiece(peer, polledWork.index))
+        // _ <- socket.writeMessage(Unchoke)
+        _ <- socket.writeMessage(request(polledWork))
+        _ <- socket.readMessage
+        // _ <- ZIO.sleep(5.seconds)
+        // _ <- socket.readMessage.repeatUntil(_ == Unchoke)
+        //   .tap(_ => log.debug(s"Unchoked, requesting a piece..."))
+
       } yield worker
     }
 
-  private def communicationLoop(
-    work: Work,
-    workQueue: Queue[Work],
-    peer: PeerAddress,
-    state: Ref[Map[PeerAddress, PeerState]],
-    socket: AsynchronousSocketChannel
-  ): ZIO[Any, Throwable, Unit] =
-    for {
-      length <- socket
-        .readChunk(4, Duration(2, TimeUnit.MINUTES))
-        .flatMap(uint32.decodeChunkM)
-        .map(_.value)
-      _ = println(s"polled $work")
-      message <- socket.readChunk(length.toInt).flatMap(Binary.peerMessageDec(length).decodeSingleChunkM)
-      // _ <- (uint32 :: uint8).encodeChunkM(1L :: 1 :: HNil).flatMap(socket.writeChunk)
-      _ = println(s"Got $message")
-    } yield ()
+  private def request(work: Work) = Request(UInt32(work.index), UInt32(0), UInt32(Math.pow(2, 14).toLong))
 
   private def dispatch(
     message: PeerMessage,
-    work: Work,
     peer: PeerAddress,
-    state: Ref[Map[PeerAddress, PeerState]],
-    socket: AsynchronousSocketChannel
+    state: PeerInfo,
+    socket: MessageSocket
   ) =
-    message match {
+    (message match {
       case KeepAlive =>
-        Binary.peerMessageEnc.encodeChunkM(KeepAlive).flatMap(socket.writeChunk).unit
+        socket.writeMessage(KeepAlive)
       case Choke =>
-        state.update { s =>
-          val updated = s(peer).copy(peerChokeState = ChokeState.Choked)
-          s.updated(peer, updated)
-        }
+        state.updatePeerChoke(peer, ChokeState.Choked)
       case Unchoke =>
-        state.update { s =>
-          s.updated(
-            peer,
-            s(peer).focus(_.peerChokeState).replace(ChokeState.Unchoked)
-          )
-        }
+        state.updatePeerChoke(peer, ChokeState.Unchoked)
       case Interested =>
-        state.update { s =>
-          val updated = s(peer).copy(peerInterestState = InterestState.Interested)
-          s.updated(peer, updated)
-        }
+        state.updatePeerInterest(peer, InterestState.Interested)
       case NotInterested =>
-        state.update { s =>
-          val updated = s(peer).copy(peerInterestState = InterestState.NotInterested)
-          s.updated(peer, updated)
-        }
+        state.updatePeerInterest(peer, InterestState.NotInterested)
       case Have(pieceIndex) =>
-        state.update { s =>
-          val updated         = ???
-          val currentBitfield = s(peer).peerBitfield
-          val updatedBitfield = currentBitfield.update(pieceIndex.value, true)
-          val updatedPeer =
-            s.updated(peer, s(peer).copy(peerF))
-        }
-      case Bitfield(payload)                  =>
-      case Request(pieceIndex, begin, length) =>
-      case Piece(pieceIndex, begin, block)    =>
-      case Cancel(pieceIndex, begin, length)  =>
-    }
+        state.updateBitfield(peer, pieceIndex.value, true)
+      case Bitfield(payload) =>
+        state.setBitfield(peer, payload)
+      case Request(_, _, _) => ZIO.unit
+      case Piece(_, _, _)    => ZIO.unit
+      case Cancel(_, _, _)  => ZIO.unit
+    }) *> state.state.get.map(_.apply(peer)).tap(state => log.debug(s"Peer state: $state"))
 }
