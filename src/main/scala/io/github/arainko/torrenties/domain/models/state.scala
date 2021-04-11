@@ -1,7 +1,9 @@
 package io.github.arainko.torrenties.domain.models
 
+import io.github.arainko.torrenties.domain.models.network._
 import monocle.macros.Lenses
 import scodec.bits.{BitVector, ByteVector}
+import zio.Chunk
 
 object state {
 
@@ -41,5 +43,26 @@ object state {
       )
   }
 
-  final case class Work(index: Long, hash: ByteVector, length: Long)
+  final case class Work(index: Long, hash: ByteVector, length: Long) {
+
+    lazy val requests: List[PeerMessage.Request] = {
+      val blockSize = Math.pow(2, 14).toLong
+      List.unfold(length) { lengthLeft =>
+        val currentBlockSize = if (lengthLeft <= blockSize) lengthLeft else blockSize
+        val offset           = length - lengthLeft
+        val request          = PeerMessage.Request(UInt32(index), UInt32(offset), UInt32(currentBlockSize))
+        Option.when(lengthLeft > 0)(request -> (lengthLeft - currentBlockSize))
+      }
+    }
+  }
+
+  final case class FullPiece(bytes: ByteVector, hash: ByteVector)
+
+  object FullPiece {
+    def fromPieces(pieces: Chunk[PeerMessage.Piece]): FullPiece = {
+      val bytes = pieces.foldLeft(ByteVector.empty)(_ ++ _.block)
+      val hash = bytes.digest("SHA-1")
+      FullPiece(bytes, hash)
+    }
+  }
 }

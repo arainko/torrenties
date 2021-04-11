@@ -1,16 +1,14 @@
 package io.github.arainko.torrenties.domain.services
 
-import io.github.arainko.torrenties.domain.models.errors
 import io.github.arainko.torrenties.domain.models.network.PeerMessage._
 import io.github.arainko.torrenties.domain.models.network._
 import io.github.arainko.torrenties.domain.models.state._
 import io.github.arainko.torrenties.domain.models.torrent._
 import zio._
 import zio.logging.{LogAnnotation, Logging, _}
-import zio.duration._
+import zio.stream.ZStream
 
 import java.time.OffsetDateTime
-import scala.annotation.nowarn
 
 object Client {
 
@@ -42,35 +40,55 @@ object Client {
         .annotate(LogAnnotation.Timestamp, OffsetDateTime.now)
     }(effect)
 
-  @nowarn
   private def worker(
     torrentFile: TorrentFile,
     peer: PeerAddress,
     work: Queue[Work],
-    state: PeerInfo,
+    state: PeerInfo
   ) =
     MessageSocket(peer).use { socket =>
       for {
         handshake <- socket.handshake(torrentFile)
-        polledWork <- work.take // Specify timeout here?
-        _ <- socket.writeMessage(Interested)
+        _         <- socket.writeMessage(Interested)
         worker <- socket.readMessage
           .flatMap(m => dispatch(m, peer, state, socket).as(m))
           .repeatUntil(_ == Unchoke)
           .tap(_ => log.debug(s"Unchoked, requesting a piece..."))
-        _ <- state.hasPiece(peer, polledWork.index).tap(has => log.debug(s"$has"))
-        // _ <- ZIO.ifM(state.hasPiece(peer, polledWork.index))
-        // _ <- socket.writeMessage(Unchoke)
-        _ <- socket.writeMessage(request(polledWork))
-        _ <- socket.readMessage
-        // _ <- ZIO.sleep(5.seconds)
-        // _ <- socket.readMessage.repeatUntil(_ == Unchoke)
-        //   .tap(_ => log.debug(s"Unchoked, requesting a piece..."))
-
+        asd <- startDownload(work, state, peer, socket)
       } yield worker
     }
 
-  private def request(work: Work) = Request(UInt32(work.index), UInt32(0), UInt32(Math.pow(2, 14).toLong))
+  private def startDownload(
+    workQueue: Queue[Work],
+    state: PeerInfo,
+    peer: PeerAddress,
+    socket: MessageSocket
+  ) =
+    for {
+      work   <- workQueue.take //TODO: check if peer has this piece
+      pieces <- downloadFullPiece(work, socket)
+      fullPiece = FullPiece.fromPieces(pieces)
+      _ <- log.debug(s"Validating hashes: ${fullPiece.hash == work.hash}")
+    } yield fullPiece
+
+  private def downloadFullPiece(work: Work, socket: MessageSocket) =
+    ZStream
+      .fromIterable(work.requests)
+      .chunkN(5)
+      .mapChunksM { requests =>
+        for {
+          fulfilledRequests <- Ref.make[Chunk[PeerMessage.Piece]](Chunk.empty)
+          _                 <- ZIO.foreach(requests)(socket.writeMessage)
+          _ <- socket.readMessage
+            .flatMap {
+              case m: PeerMessage.Piece => fulfilledRequests.update(_.appended(m))
+              case other                => log.warn(s"Got different kind of message: $other")
+            }
+            .repeatUntilM(_ => fulfilledRequests.get.map(_.size == requests.size))
+          pieces <- fulfilledRequests.get.map(Chunk.fromIterable)
+        } yield pieces
+      }
+      .runCollect
 
   private def dispatch(
     message: PeerMessage,
@@ -94,7 +112,7 @@ object Client {
       case Bitfield(payload) =>
         state.setBitfield(peer, payload)
       case Request(_, _, _) => ZIO.unit
-      case Piece(_, _, _)    => ZIO.unit
+      case Piece(_, _, _)   => ZIO.unit
       case Cancel(_, _, _)  => ZIO.unit
     }) *> state.state.get.map(_.apply(peer)).tap(state => log.debug(s"Peer state: $state"))
 }
