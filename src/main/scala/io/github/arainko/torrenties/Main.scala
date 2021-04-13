@@ -18,7 +18,7 @@ object Main extends App {
 
   private val program =
     for {
-      torrentBytes <- ZStream.fromResource("debian.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
+      torrentBytes <- ZStream.fromResource("ubuntu.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
       parsed = Bencode.parseAs[TorrentFile](torrentBytes)
       torrent <- ZIO.fromEither(parsed).mapError(SerializationError.fromBencodeError)
       _       <- Client.start(torrent)

@@ -12,6 +12,8 @@ import zio.duration._
 import zio.logging._
 import zio.nio.channels._
 import zio.nio.core.SocketAddress
+import java.net.SocketOptions
+import java.net.SocketOption
 
 object MessageSocket {
 

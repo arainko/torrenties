@@ -8,5 +8,7 @@ project/.bloop/
 project/target/
 project/project
 project/metals.sbt
+downloads/
+download_ubuntu/
 
 .idea/modules/bencode-build.iml

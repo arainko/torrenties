@@ -5,10 +5,17 @@ import io.github.arainko.torrenties.domain.models.network._
 import io.github.arainko.torrenties.domain.models.state._
 import io.github.arainko.torrenties.domain.models.torrent._
 import zio._
+import zio.duration._
 import zio.logging.{LogAnnotation, Logging, _}
 import zio.stream.ZStream
 
 import java.time.OffsetDateTime
+import zio.clock.Clock
+import scala.annotation.nowarn
+import zio.stream.ZSink
+import java.nio.file.Paths
+import zio.nio.channels.AsynchronousFileChannel
+import zio.nio.core.file.Path
 
 object Client {
 
@@ -40,6 +47,7 @@ object Client {
         .annotate(LogAnnotation.Timestamp, OffsetDateTime.now)
     }(effect)
 
+  @nowarn
   private def worker(
     torrentFile: TorrentFile,
     peer: PeerAddress,
@@ -48,15 +56,29 @@ object Client {
   ) =
     MessageSocket(peer).use { socket =>
       for {
-        handshake <- socket.handshake(torrentFile)
-        _         <- socket.writeMessage(Interested)
-        worker <- socket.readMessage
+        _ <- socket.handshake(torrentFile)
+        _ <- socket.writeMessage(Interested)
+        _ <- socket.readMessage
           .flatMap(m => dispatch(m, peer, state, socket).as(m))
           .repeatUntil(_ == Unchoke)
           .tap(_ => log.debug(s"Unchoked, requesting a piece..."))
-        asd <- startDownload(work, state, peer, socket)
-      } yield worker
+        asd <- startDownload(work, state, peer, socket).forever
+      } yield asd
     }
+
+  private def takeIfHas(q: Queue[Work], predM: Work => UIO[Boolean]): URIO[Clock, Work] =
+    q.take.flatMap { taken =>
+      ZIO.ifM(predM(taken))(
+        ZIO.succeed(taken),
+        q.offer(taken) *> ZIO.sleep(50.millis) *> takeIfHas(q, predM)
+      )
+    }
+
+  private def saveToFile(work: Work, fullPiece: FullPiece) =
+    ZStream
+      .fromChunk(Chunk.fromArray(fullPiece.bytes.toArray))
+      .run(ZSink.fromFile(Paths.get(s"download_ubuntu/work-${work.index}")))
+      .unit
 
   private def startDownload(
     workQueue: Queue[Work],
@@ -65,9 +87,10 @@ object Client {
     socket: MessageSocket
   ) =
     for {
-      work   <- workQueue.take //TODO: check if peer has this piece
-      pieces <- downloadFullPiece(work, socket)
+      work   <- takeIfHas(workQueue, w => state.hasPiece(peer, w.index))
+      pieces <- downloadFullPiece(work, socket).onError(_ => workQueue.offer(work))
       fullPiece = FullPiece.fromPieces(pieces)
+      _ <- if (fullPiece.hash == work.hash) saveToFile(work, fullPiece) else workQueue.offer(work)
       _ <- log.debug(s"Validating hashes: ${fullPiece.hash == work.hash}")
     } yield fullPiece
 

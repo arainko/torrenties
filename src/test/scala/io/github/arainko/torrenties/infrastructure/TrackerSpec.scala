@@ -1,33 +1,28 @@
 package io.github.arainko.torrenties.infrastructure
 
-import io.github.arainko.bencode._
-import io.github.arainko.torrenties.domain.codecs.bencode._
-import io.github.arainko.torrenties.domain.models.torrent._
-import io.github.arainko.torrenties.domain.services.{Client, Tracker}
-import scodec.bits.ByteVector
-import sttp.client3.asynchttpclient.zio._
-import zio.ZIO
-import zio.logging.{Logging, _}
+import zio._
+import zio.test._
 import zio.magic._
+import zio.test.Assertion._
+import zio.stream.SubscriptionRef
+import zio.ZQueue
+import zio.logging._
 import zio.stream.ZStream
-import zio.test.{DefaultRunnableSpec, ZSpec, _}
 
 object TrackerSpec extends DefaultRunnableSpec {
 
+  private def takeEquals(q: Queue[Int], eq: Int): UIO[Int] = 
+    q.take.flatMap { taken =>
+      ZIO.ifM(ZIO.succeed(taken == eq))(
+        ZIO.succeed(taken),
+        q.offer(taken) *> takeEquals(q, eq)
+      )
+    }
+
   def spec: ZSpec[Environment, Failure] =
     suite("costam")(
-      testM("asd") {
-        for {
-          torrentFile <- ZStream.fromResource("debian.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
-          parsed      <- ZIO.fromEither(Bencode.parse(torrentFile))
-          torrent     <- ZIO.fromEither(parsed.cursor.as[TorrentFile])
-          _ <- Client.start(torrent)
-        } yield assertCompletes
+      testM("queue test") {
+        assertCompletesM
       }
-    ).provideCustomMagicLayer(
-      Logging.console(LogLevel.Debug),
-      Tracker.live,
-      AsyncHttpClientZioBackend.layer().orDie,
-      // Clock.live
     )
 }
