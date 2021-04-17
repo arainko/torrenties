@@ -4,9 +4,11 @@ import io.github.arainko.bencode.syntax._
 import io.github.arainko.torrenties.domain.codecs.Binary._
 import io.github.arainko.torrenties.domain.codecs.bencode._
 import io.github.arainko.torrenties.domain.models.network._
+import io.github.arainko.torrenties.domain.models.state._
 import io.github.arainko.torrenties.domain.models.torrent.Info.{MultipleFile, SingleFile}
 import io.scalaland.chimney.dsl._
 import scodec.bits.ByteVector
+import monocle.syntax._
 
 import java.time.{Duration, LocalDate}
 
@@ -35,12 +37,20 @@ object torrent {
 
     lazy val infoHash: InfoHash = InfoHash(this.asBencode.byteify().digest("SHA-1"))
 
-    lazy val hashPieces: List[ByteVector] = 
+    lazy val hashPieces: List[ByteVector] =
       List.unfold(fold(_.pieces, _.pieces)) { curr =>
         val piece     = curr.take(20)
         val remainder = curr.drop(20)
         Option.when(!piece.isEmpty)(piece -> remainder)
       }
+
+    lazy val workPieces = fold(
+      singleFile => {
+      singleFile.hashPieces.zipWithIndex
+          .map { case (hash, index) => Work(index.toLong, hash, singleFile.pieceLength) }
+      },
+      multipleFile => ??? // TODO: Decide what to do wuth multipleFile mode
+    )
   }
 
   object Info {

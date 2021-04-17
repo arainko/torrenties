@@ -31,5 +31,4 @@ object Main extends App {
         AsyncHttpClientZioBackend.layer().orDie,
         logging
       )
-
 }

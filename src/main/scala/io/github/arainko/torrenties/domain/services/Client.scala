@@ -16,25 +16,24 @@ import zio.stream.ZSink
 import java.nio.file.Paths
 import zio.nio.channels.AsynchronousFileChannel
 import zio.nio.core.file.Path
+import zio.nio.file.Files
+import java.util.concurrent.TimeoutException
 
 object Client {
 
   def start(torrentFile: TorrentFile) =
     for {
       announce <- Tracker.announce(torrentFile)
-      // _ = torrentFile.info.fold(a => a.piece, a => a.pieceLength)
-      workPieces = torrentFile.info.fold(
-        s => s.hashPieces.zipWithIndex.map { case (hash, index) => Work(index.toLong, hash, s.pieceLength) },
-        s => s.hashPieces.zipWithIndex.map { case (hash, index) => Work(index.toLong, hash, s.pieceLength) }
-      )
-      workQueue   <- Queue.bounded[Work](workPieces.size)
-      resultQueue <- Queue.bounded[Work](workPieces.size) //TODO: Add Result type
+      workPieces = torrentFile.info.workPieces
+      workQueue   <- Queue.bounded[Work](torrentFile.info.workPieces.size)
+      resultQueue <- Queue.bounded[Result](torrentFile.info.workPieces.size)
+      _           <- Merger.daemon(torrentFile, resultQueue).runDrain.fork
       _           <- workQueue.offerAll(workPieces)
       peerState   <- PeerInfo.make(announce.peers, workPieces.size.toLong)
-      fibers <- ZIO.foreach(announce.peers) { peer =>
+      _ <- ZIO.foreach(announce.peers) { peer =>
         logged(peer) {
           log.debug(s"Starting $peer") *>
-            worker(torrentFile, peer, workQueue, peerState).fork
+            worker(torrentFile, peer, workQueue, resultQueue, peerState).fork
         }
       }
       _ <- workQueue.awaitShutdown
@@ -52,6 +51,7 @@ object Client {
     torrentFile: TorrentFile,
     peer: PeerAddress,
     work: Queue[Work],
+    results: Queue[Result],
     state: PeerInfo
   ) =
     MessageSocket(peer).use { socket =>
@@ -62,7 +62,7 @@ object Client {
           .flatMap(m => dispatch(m, peer, state, socket).as(m))
           .repeatUntil(_ == Unchoke)
           .tap(_ => log.debug(s"Unchoked, requesting a piece..."))
-        asd <- startDownload(work, state, peer, socket).forever
+        asd <- startDownload(work, results, state, peer, socket).forever
       } yield asd
     }
 
@@ -74,23 +74,21 @@ object Client {
       )
     }
 
-  private def saveToFile(work: Work, fullPiece: FullPiece) =
-    ZStream
-      .fromChunk(Chunk.fromArray(fullPiece.bytes.toArray))
-      .run(ZSink.fromFile(Paths.get(s"download_ubuntu/work-${work.index}")))
-      .unit
-
   private def startDownload(
     workQueue: Queue[Work],
+    resultQueue: Queue[Result],
     state: PeerInfo,
     peer: PeerAddress,
     socket: MessageSocket
   ) =
     for {
       work   <- takeIfHas(workQueue, w => state.hasPiece(peer, w.index))
-      pieces <- downloadFullPiece(work, socket).onError(_ => workQueue.offer(work))
+      pieces <- downloadFullPiece(work, socket)
+        .timeoutFail(new TimeoutException)(2.minutes)
+        .onError(_ => workQueue.offer(work))
       fullPiece = FullPiece.fromPieces(pieces)
-      _ <- if (fullPiece.hash == work.hash) saveToFile(work, fullPiece) else workQueue.offer(work)
+      result = Result(work, fullPiece)
+      _ <- if (fullPiece.hash == work.hash) resultQueue.offer(result) else workQueue.offer(work)
       _ <- log.debug(s"Validating hashes: ${fullPiece.hash == work.hash}")
     } yield fullPiece
 

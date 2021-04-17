@@ -56,7 +56,11 @@ object state {
     }
   }
 
-  final case class FullPiece(bytes: ByteVector, hash: ByteVector)
+  final case class FullPiece(bytes: ByteVector, hash: ByteVector) {
+    lazy val chunk: Chunk[Byte] = Chunk.fromArray(bytes.toArray)
+  }
+
+  final case class Result(work: Work, fullPiece: FullPiece)
 
   object FullPiece {
     def fromPieces(pieces: Chunk[PeerMessage.Piece]): FullPiece = {
