@@ -119,10 +119,22 @@ object BencodeDecoderSpec extends DefaultRunnableSpec {
         for {
           torrentFile <- ZStream.fromResource("ubuntu.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
           parsed      <- ZIO.fromEither(Bencode.parse(torrentFile))
-          info = parsed.cursor.field("info").as[Info]
-          encoded = info.map(_.asBencode.byteify())
+          info       = parsed.cursor.field("info").as[Info]
+          encoded    = info.map(_.asBencode.byteify())
           parsedBack = encoded.flatMap(bytes => Bencode.parse(bytes).flatMap(_.cursor.as[Info]))
         } yield assert(parsedBack)(equalTo(info))
+      },
+      testM("calculate proper work pieces") {
+        for {
+          ubuntu       <- ZStream.fromResource("ubuntu.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
+          debian       <- ZStream.fromResource("debian.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
+          parsedUbuntu <- ZIO.fromEither(Bencode.parseAs[TorrentFile](ubuntu))
+          parsedDebian <- ZIO.fromEither(Bencode.parseAs[TorrentFile](debian))
+          ubuntuWork = parsedUbuntu.info.workPieces
+          debianWork = parsedDebian.info.workPieces
+          _ = println(s"first ubuntu: ${ubuntuWork.head}, last: ${ubuntuWork.last}")
+          _ = println(s"first debian: ${debianWork.head}, last: ${debianWork.last}")
+        } yield assertCompletes
       }
     )
 }

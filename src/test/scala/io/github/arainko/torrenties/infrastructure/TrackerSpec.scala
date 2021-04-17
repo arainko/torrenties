@@ -19,30 +19,16 @@ import java.nio.file.StandardOpenOption
 
 object TrackerSpec extends DefaultRunnableSpec {
 
-  private val opt: Set[OpenOption] = Set(StandardOpenOption.CREATE, StandardOpenOption.WRITE)
-
-  private def writeToFile(queue: Queue[String]) =
-    ZStream
-      .fromQueue(queue)
-      .mapM { res =>
-        log.info(s"got $res") *>
-        ZStream
-          .fromChunk(Chunk.fromArray(res.getBytes))
-          .run(ZSink.fromFile(Paths.get("testfile"), res.length().toLong, opt))
-      }
-      .runDrain
-
   def spec: ZSpec[Environment, Failure] =
     suite("costam")(
       testM("queue test") {
         for {
           q <- Queue.bounded[String](100)
-          _ <- writeToFile(q).fork
-          // _ <- q.offerAll("1" :: "  2" :: "   3" :: Nil)
+          // _ <- writeToFile(q).fork
           _ <- q.offer("2").repeat(Schedule.fixed(3.seconds)).inject(Clock.live)
         } yield assertCompletes
       }
     )
-    .injectCustom(Logging.console())
+    // .injectCustom(Logging.console())
       
 }

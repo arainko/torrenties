@@ -37,8 +37,8 @@ object torrent {
 
     lazy val infoHash: InfoHash = InfoHash(this.asBencode.byteify().digest("SHA-1"))
 
-    lazy val hashPieces: List[ByteVector] =
-      List.unfold(fold(_.pieces, _.pieces)) { curr =>
+    lazy val hashPieces: Vector[ByteVector] =
+      Vector.unfold(fold(_.pieces, _.pieces)) { curr =>
         val piece     = curr.take(20)
         val remainder = curr.drop(20)
         Option.when(!piece.isEmpty)(piece -> remainder)
@@ -46,8 +46,16 @@ object torrent {
 
     lazy val workPieces = fold(
       singleFile => {
-      singleFile.hashPieces.zipWithIndex
-          .map { case (hash, index) => Work(index.toLong, hash, singleFile.pieceLength) }
+      val fullPieces = singleFile
+        .hashPieces
+        .zipWithIndex
+        .map { case (hash, index) => Work(index.toLong, hash, singleFile.pieceLength) }
+      
+      val lastPieceSize = singleFile.length % (singleFile.pieceLength)
+      val actualLastPieceSize = if (lastPieceSize == 0) singleFile.pieceLength else lastPieceSize
+      val lastPiece = fullPieces.last.copy(length = actualLastPieceSize)
+      fullPieces.init.appended(lastPiece)
+      // fullPieces
       },
       multipleFile => ??? // TODO: Decide what to do wuth multipleFile mode
     )
