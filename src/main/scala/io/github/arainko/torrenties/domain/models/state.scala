@@ -63,9 +63,10 @@ object state {
   final case class Result(work: Work, fullPiece: FullPiece)
 
   object FullPiece {
+
     def fromPieces(pieces: Chunk[PeerMessage.Piece]): FullPiece = {
       val bytes = pieces.foldLeft(ByteVector.empty)(_ ++ _.block)
-      val hash = bytes.digest("SHA-1")
+      val hash  = bytes.digest("SHA-1")
       FullPiece(bytes, hash)
     }
   }

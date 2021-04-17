@@ -7,13 +7,11 @@ import io.github.arainko.torrenties.domain.models.torrent._
 import io.github.arainko.torrenties.domain.syntax._
 import scodec.codecs._
 import zio._
-import zio.stream._
 import zio.duration._
 import zio.logging._
 import zio.nio.channels._
 import zio.nio.core.SocketAddress
-import java.net.SocketOptions
-import java.net.SocketOption
+import zio.stream._
 
 object MessageSocket {
 

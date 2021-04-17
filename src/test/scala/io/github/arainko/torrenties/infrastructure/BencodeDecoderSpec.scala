@@ -132,8 +132,8 @@ object BencodeDecoderSpec extends DefaultRunnableSpec {
           parsedDebian <- ZIO.fromEither(Bencode.parseAs[TorrentFile](debian))
           ubuntuWork = parsedUbuntu.info.workPieces
           debianWork = parsedDebian.info.workPieces
-          _ = println(s"first ubuntu: ${ubuntuWork.head}, last: ${ubuntuWork.last}")
-          _ = println(s"first debian: ${debianWork.head}, last: ${debianWork.last}")
+          _          = println(s"first ubuntu: ${ubuntuWork.head}, last: ${ubuntuWork.last}")
+          _          = println(s"first debian: ${debianWork.head}, last: ${debianWork.last}")
         } yield assertCompletes
       }
     )

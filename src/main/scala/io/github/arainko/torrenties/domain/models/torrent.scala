@@ -8,7 +8,6 @@ import io.github.arainko.torrenties.domain.models.state._
 import io.github.arainko.torrenties.domain.models.torrent.Info.{MultipleFile, SingleFile}
 import io.scalaland.chimney.dsl._
 import scodec.bits.ByteVector
-import monocle.syntax._
 
 import java.time.{Duration, LocalDate}
 
@@ -44,20 +43,17 @@ object torrent {
         Option.when(!piece.isEmpty)(piece -> remainder)
       }
 
-    lazy val workPieces = fold(
+    lazy val workPieces: Vector[Work] = fold(
       singleFile => {
-      val fullPieces = singleFile
-        .hashPieces
-        .zipWithIndex
-        .map { case (hash, index) => Work(index.toLong, hash, singleFile.pieceLength) }
-      
-      val lastPieceSize = singleFile.length % (singleFile.pieceLength)
-      val actualLastPieceSize = if (lastPieceSize == 0) singleFile.pieceLength else lastPieceSize
-      val lastPiece = fullPieces.last.copy(length = actualLastPieceSize)
-      fullPieces.init.appended(lastPiece)
-      // fullPieces
+        val fullPieces = singleFile.hashPieces.zipWithIndex
+          .map { case (hash, index) => Work(index.toLong, hash, singleFile.pieceLength) }
+
+        val lastPieceSize       = singleFile.length % (singleFile.pieceLength)
+        val actualLastPieceSize = if (lastPieceSize == 0) singleFile.pieceLength else lastPieceSize
+        val lastPiece           = fullPieces.last.copy(length = actualLastPieceSize)
+        fullPieces.init.appended(lastPiece)
       },
-      multipleFile => ??? // TODO: Decide what to do wuth multipleFile mode
+      _ => ??? // TODO: Decide what to do wuth multipleFile mode
     )
   }
 
