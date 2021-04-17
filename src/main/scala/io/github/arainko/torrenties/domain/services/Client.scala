@@ -1,27 +1,25 @@
 package io.github.arainko.torrenties.domain.services
 
+import io.github.arainko.torrenties._
+import io.github.arainko.torrenties.domain.models.errors._
 import io.github.arainko.torrenties.domain.models.network.PeerMessage._
 import io.github.arainko.torrenties.domain.models.network._
 import io.github.arainko.torrenties.domain.models.state._
 import io.github.arainko.torrenties.domain.models.torrent._
 import zio._
+import zio.blocking.Blocking
+import zio.clock.Clock
 import zio.duration._
 import zio.logging.{LogAnnotation, Logging, _}
 import zio.stream.ZStream
 
 import java.time.OffsetDateTime
-import zio.clock.Clock
-import scala.annotation.nowarn
-import zio.stream.ZSink
-import java.nio.file.Paths
-import zio.nio.channels.AsynchronousFileChannel
-import zio.nio.core.file.Path
-import zio.nio.file.Files
 import java.util.concurrent.TimeoutException
+import scala.annotation.nowarn
 
 object Client {
 
-  def start(torrentFile: TorrentFile) =
+  def start(torrentFile: TorrentFile): ZIO[Tracker with Blocking with Logging with Clock, TrackerError, Unit] =
     for {
       announce <- Tracker.announce(torrentFile)
       workPieces = torrentFile.info.workPieces
@@ -82,12 +80,12 @@ object Client {
     socket: MessageSocket
   ) =
     for {
-      work   <- takeIfHas(workQueue, w => state.hasPiece(peer, w.index))
+      work <- takeIfHas(workQueue, w => state.hasPiece(peer, w.index))
       pieces <- downloadFullPiece(work, socket)
         .timeoutFail(new TimeoutException)(2.minutes)
         .onError(_ => workQueue.offer(work))
       fullPiece = FullPiece.fromPieces(pieces)
-      result = Result(work, fullPiece)
+      result    = Result(work, fullPiece)
       _ <- if (fullPiece.hash == work.hash) resultQueue.offer(result) else workQueue.offer(work)
       _ <- log.debug(s"Validating hashes: ${fullPiece.hash == work.hash}")
     } yield fullPiece

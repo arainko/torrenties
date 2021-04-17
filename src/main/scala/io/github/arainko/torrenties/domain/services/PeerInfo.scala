@@ -16,7 +16,7 @@ object PeerInfo {
   }
 
   // TODO: Move somewhere else?
-  implicit val indexBitVector: Index[BitVector,Long,Boolean] = new Index[BitVector, Long, Boolean] {
+  implicit val indexBitVector: Index[BitVector, Long, Boolean] = new Index[BitVector, Long, Boolean] {
 
     override def index(i: Long): Optional[BitVector, Boolean] =
       Optional[BitVector, Boolean](_.lift(i))(bool => vec => vec.update(i, bool))
@@ -47,7 +47,7 @@ final case class PeerInfo(state: Ref[Map[PeerAddress, PeerState]]) extends AnyVa
 
   def updateChoke(peer: PeerAddress, choke: ChokeState): UIO[Unit] = updateProperty(peer)(PeerState.chokeState)(choke)
 
-  def updateBitfield(peer: PeerAddress, index: Long, value: Boolean): IO[Nothing,Unit] =
+  def updateBitfield(peer: PeerAddress, index: Long, value: Boolean): IO[Nothing, Unit] =
     state.update {
       _.focus()
         .index(peer)

@@ -1,21 +1,10 @@
 package io.github.arainko.torrenties.infrastructure
 
 import zio._
-import zio.duration._
-import zio.test._
-import zio.magic._
-import zio.test.Assertion._
-import zio.stream.SubscriptionRef
-import zio.ZQueue
-import zio.logging._
-import zio.stream.ZStream
-import zio.nio.channels._
 import zio.clock.Clock
-import zio.nio.core.file.Path
-import zio.stream.ZSink
-import java.nio.file.Paths
-import java.nio.file.OpenOption
-import java.nio.file.StandardOpenOption
+import zio.duration._
+import zio.magic._
+import zio.test._
 
 object TrackerSpec extends DefaultRunnableSpec {
 
@@ -29,6 +18,6 @@ object TrackerSpec extends DefaultRunnableSpec {
         } yield assertCompletes
       }
     )
-    // .injectCustom(Logging.console())
-      
+  // .injectCustom(Logging.console())
+
 }
