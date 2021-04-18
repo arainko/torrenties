@@ -52,4 +52,8 @@ object syntax {
     def decodeSingleChunkM(value: Chunk[Byte]): IO[SerializationError, A] =
       decodeSingleM(ByteVector.view(value.toArray).bits)
   }
+
+  implicit class ZIOOps[R, E, A](private val effect: ZIO[R, E, A]) extends AnyVal {
+    def tapEffect[R1 <: R, E1 >: E](f: ZIO[R, E, A] => ZIO[R1, E1, A]): ZIO[R1, E1, A] = f(effect)
+  }
 }

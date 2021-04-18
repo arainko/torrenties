@@ -34,4 +34,6 @@ object errors {
   }
 
   case object PeerNotFound extends ApplicationError
+
+  case object TimeoutError extends ApplicationError
 }
