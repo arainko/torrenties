@@ -56,4 +56,15 @@ object syntax {
   implicit class ZIOOps[R, E, A](private val effect: ZIO[R, E, A]) extends AnyVal {
     def tapEffect[R1 <: R, E1 >: E](f: ZIO[R, E, A] => ZIO[R1, E1, A]): ZIO[R1, E1, A] = f(effect)
   }
+
+  implicit class QueueOps[A](private val queue: Queue[A]) extends AnyVal {
+
+    def takeFilterM(pred: A => UIO[Boolean]): UIO[A] =
+      queue.take.flatMap { taken =>
+        ZIO.ifM(pred(taken))(
+          ZIO.succeed(taken),
+          queue.offer(taken) *> queue.takeFilterM(pred)
+        )
+      }
+  }
 }

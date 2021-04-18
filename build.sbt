@@ -1,4 +1,4 @@
-val zioVersion     = "1.0.4"
+val zioVersion     = "1.0.6"
 val monocleVersion = "3.0.0-M4"
 val sttpVersion    = "3.1.7"
 
@@ -21,8 +21,8 @@ lazy val torrenties = (project in file("."))
       "com.github.julien-truffaut"    %% "monocle-macro"                 % monocleVersion,
       "com.softwaremill.sttp.client3" %% "core"                          % sttpVersion,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
-      "dev.zio"                       %% "zio-config"                    % zioVersion,
-      "dev.zio"                       %% "zio-config-typesafe"           % zioVersion,
+      "dev.zio"                       %% "zio-config"                    % "1.0.4",
+      "dev.zio"                       %% "zio-config-typesafe"           % "1.0.4",
       "dev.zio"                       %% "zio"                           % zioVersion,
       "dev.zio"                       %% "zio-test"                      % zioVersion % "test",
       "dev.zio"                       %% "zio-test-sbt"                  % zioVersion % "test",

@@ -70,4 +70,18 @@ object state {
       FullPiece(bytes, hash)
     }
   }
+
+  final case class TorrentMeta(bitfield: BitVector, completed: Int) {
+
+    def markCompleted(pieceIndex: Int): TorrentMeta =
+      this.copy(
+        bitfield.set(pieceIndex.toLong),
+        completed + 1
+      )
+  }
+
+  object TorrentMeta {
+    def empty(pieceCount: Int): TorrentMeta = TorrentMeta(BitVector.fill(pieceCount.toLong)(false), 0)
+
+  }
 }

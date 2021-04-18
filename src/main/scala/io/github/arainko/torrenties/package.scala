@@ -5,4 +5,5 @@ import zio._
 
 package object torrenties {
   type Tracker = Has[Tracker.Service]
+  type Merger = Has[Merger.Service]
 }

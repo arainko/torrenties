@@ -1,14 +1,13 @@
 package io.github.arainko.torrenties.domain.services
 
 import io.github.arainko.torrenties._
-import io.github.arainko.torrenties.domain.syntax._
 import io.github.arainko.torrenties.domain.models.errors._
 import io.github.arainko.torrenties.domain.models.network.PeerMessage._
 import io.github.arainko.torrenties.domain.models.network._
 import io.github.arainko.torrenties.domain.models.state._
 import io.github.arainko.torrenties.domain.models.torrent._
+import io.github.arainko.torrenties.domain.syntax._
 import zio._
-import zio.blocking.Blocking
 import zio.clock.Clock
 import zio.duration._
 import zio.logging.{LogAnnotation, Logging, _}
@@ -19,7 +18,7 @@ import scala.annotation.nowarn
 
 object Client {
 
-  def start(torrentFile: TorrentFile): ZIO[Tracker with Blocking with Logging with Clock, TrackerError, Unit] =
+  def start(torrentFile: TorrentFile): ZIO[Tracker & Merger & Logging & Clock, TrackerError, Unit] =
     for {
       announce <- Tracker.announce(torrentFile)
       workPieces = torrentFile.info.workPieces
@@ -57,14 +56,6 @@ object Client {
       } yield asd
     }
 
-  private def takeIfHas(q: Queue[Work], predM: Work => UIO[Boolean]): URIO[Clock, Work] =
-    q.take.flatMap { taken =>
-      ZIO.ifM(predM(taken))(
-        ZIO.succeed(taken),
-        q.offer(taken) *> ZIO.sleep(50.millis) *> takeIfHas(q, predM)
-      )
-    }
-
   private def startDownload(
     workQueue: Queue[Work],
     resultQueue: Queue[Result],
@@ -73,7 +64,7 @@ object Client {
     socket: MessageSocket
   ) =
     for {
-      work <- takeIfHas(workQueue, w => state.hasPiece(peer, w.index))
+      work <- workQueue.takeFilterM(w => state.hasPiece(peer, w.index))
       pieces <- downloadFullPiece(work, socket)
         .timeoutFail(TimeoutError)(2.minutes)
         .onError(_ => workQueue.offer(work))
@@ -128,7 +119,7 @@ object Client {
       case Cancel(_, _, _)  => ZIO.unit
     }) *> state.state.get.map(_.apply(peer)).tap(state => log.debug(s"Peer state: $state"))
 
-  private def logged[R, E, A](peer: PeerAddress)(effect: ZIO[R, E, A]): ZIO[Logging with R, E, A] =
+  private def logged[R, E, A](peer: PeerAddress)(effect: ZIO[R, E, A]) =
     Logging.locally { ctx =>
       ctx
         .annotate(LogAnnotation.Name, peer.address.value :: Nil)
