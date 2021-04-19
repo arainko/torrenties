@@ -20,7 +20,7 @@ import zio.logging.Logging
 object Merger {
 
   trait Service {
-    def meta(torrent: TorrentFile): Task[Ref[TorrentMeta]]
+    def meta(torrent: TorrentFile): UIO[TorrentMeta]
     def daemon(torrent: TorrentFile, queue: Queue[Result]): Stream[Throwable, Unit]
   }
 
@@ -42,27 +42,22 @@ object Merger {
           ZSink.fromFile(fullPath, position, options)
         }
 
-        def meta(torrent: TorrentFile): UIO[Ref[TorrentMeta]] = {
+        def meta(torrent: TorrentFile): UIO[TorrentMeta] = {
           val path       = filePath(torrent)
           val pieceSize  = torrent.info.fold(_.pieceLength, _.pieceLength)
           val pieceCount = torrent.info.hashPieces.size
-          for {
-            metaRef    <- Ref.make[TorrentMeta](TorrentMeta.empty(pieceCount))
-            pieceIndex <- Ref.make[Int](0)
-            result <- ZStream
-              .fromFile(path, pieceSize.toInt)
-              .foreachChunk { piece =>
-                for {
-                  index <- pieceIndex.get
-                  hash      = torrent.info.hashPieces(index)
-                  pieceHash = ByteVector(piece).digest("SHA-1")
-                  _ <- log.debug(s"Checking piece ${index} -> ${hash == pieceHash}")
-                  _ <- metaRef.update(meta => if (hash == pieceHash) meta.markCompleted(index) else meta)
-                  _ <- pieceIndex.update(_ + 1)
-                } yield ()
+          val emptyMeta = TorrentMeta.empty(pieceCount)
+            ZStream
+              .fromFile(path, ZStream.DefaultChunkSize)
+              .aggregate(Transducer.collectAllN(pieceSize.toInt))
+              .zipWithIndex
+              .fold(emptyMeta) { (meta, pieceAndIndex) => 
+                val (piece, index) = pieceAndIndex
+                val hash = torrent.info.hashPieces(index.toInt)
+                val pieceHash = ByteVector(piece).digest("SHA-1")
+                if (hash == pieceHash) meta.markCompleted(index.toInt) else meta
               }
-              .fold(_ => metaRef, _ => metaRef)
-          } yield result
+              .fold(_ => emptyMeta, identity)
         }
           .provide(env)
 
