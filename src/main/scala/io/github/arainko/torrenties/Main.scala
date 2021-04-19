@@ -16,27 +16,27 @@ import zio.stream._
 
 object Main extends App {
 
-  private val logging = Logging.console(LogLevel.Debug)
+  private val logging = Logging.console(LogLevel.Info)
 
   private val folderConfig = TypesafeConfig.fromDefaultLoader(FolderConfig.descriptor)
 
+  // Ref.make(1).map(_.)
+
   private val program =
     for {
-      torrentBytes <- ZStream.fromResource("ubuntu.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
+      torrentBytes <- ZStream.fromResource("debian.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
       parsed = Bencode.parseAs[TorrentFile](torrentBytes)
       torrent <- ZIO.fromEither(parsed).mapError(SerializationError.fromBencodeError)
-      meta <- Merger.meta(torrent)
-      _ = println(meta)
-
-      // _       <- Client.start(torrent)
+      meta    <- Merger.meta(torrent)
+      _       <- if (meta.isNotComplete) Ref.make(meta).flatMap(Client.start) else ZIO.unit
     } yield ()
 
   def run(args: List[String]): URIO[ZEnv, ExitCode] =
     program.exitCode
       .injectCustom(
-        // Tracker.live,
+        Tracker.live,
         Merger.live,
-        // AsyncHttpClientZioBackend.layer().orDie,
+        AsyncHttpClientZioBackend.layer().orDie,
         folderConfig.orDie,
         logging
       )

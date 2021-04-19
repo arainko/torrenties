@@ -1,6 +1,7 @@
 package io.github.arainko.torrenties.domain.models
 
 import io.github.arainko.torrenties.domain.models.network._
+import io.github.arainko.torrenties.domain.models.torrent._
 import monocle.macros.Lenses
 import scodec.bits.{BitVector, ByteVector}
 import zio.Chunk
@@ -71,17 +72,29 @@ object state {
     }
   }
 
-  final case class TorrentMeta(bitfield: BitVector, completed: Int) {
+  final case class TorrentMeta(torrentFile: TorrentFile, bitfield: Chunk[Boolean], completed: Int) {
 
     def markCompleted(pieceIndex: Int): TorrentMeta =
       this.copy(
-        bitfield.set(pieceIndex.toLong),
-        completed + 1
+        bitfield = bitfield.updated(pieceIndex, true),
+        completed = completed + 1
       )
+
+    def incompleteWork: Vector[Work] = {
+      val work = torrentFile.info.workPieces
+      bitfield.zipWithIndex
+        .collect {
+          case (bit, index) if bit == false => index
+        }
+        .foldLeft(Vector.empty[Work])(_ :+ work(_))
+    }
+
+    def isComplete: Boolean    = torrentFile.pieceCount.toInt == completed
+    def isNotComplete: Boolean = !isComplete
   }
 
   object TorrentMeta {
-    def empty(pieceCount: Int): TorrentMeta = TorrentMeta(BitVector.fill(pieceCount.toLong)(false), 0)
+    def empty(torrent: TorrentFile): TorrentMeta = TorrentMeta(torrent, Chunk.fill(torrent.pieceCount.toInt)(false), 0)
 
   }
 }

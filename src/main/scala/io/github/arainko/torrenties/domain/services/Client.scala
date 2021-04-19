@@ -3,6 +3,7 @@ package io.github.arainko.torrenties.domain.services
 import io.github.arainko.torrenties._
 import io.github.arainko.torrenties.domain.models.errors._
 import io.github.arainko.torrenties.domain.models.network.PeerMessage._
+import io.github.arainko.torrenties.domain.models.network.PeerMessage
 import io.github.arainko.torrenties.domain.models.network._
 import io.github.arainko.torrenties.domain.models.state._
 import io.github.arainko.torrenties.domain.models.torrent._
@@ -10,30 +11,54 @@ import io.github.arainko.torrenties.domain.syntax._
 import zio._
 import zio.clock.Clock
 import zio.duration._
+import zio.console._
 import zio.logging.{LogAnnotation, Logging, _}
 import zio.stream.ZStream
 
 import java.time.OffsetDateTime
 import scala.annotation.nowarn
+import zio.stream.ZTransducer
 
 object Client {
 
-  def start(torrentFile: TorrentFile): ZIO[Tracker & Merger & Logging & Clock, TrackerError, Unit] =
+  private def transducer(meta: Ref[TorrentMeta], queue: Queue[Result]) =
+    ZTransducer[PieceIndex]
+      .mapM(idx => meta.update(_.markCompleted(idx.value.toInt)))
+      .mapM(_ => logProgress(meta))
+      .mapM(_ => ZIO.ifM(meta.get.map(_.isComplete))(queue.shutdown, ZIO.unit))
+
+  private def logProgress(meta: Ref[TorrentMeta]) =
     for {
-      announce <- Tracker.announce(torrentFile)
-      workPieces = torrentFile.info.workPieces
-      workQueue   <- Queue.bounded[Work](workPieces.size)
-      resultQueue <- Queue.bounded[Result](workPieces.size)
-      _           <- Merger.daemon(torrentFile, resultQueue).runDrain.fork
-      _           <- workQueue.offerAll(workPieces)
-      peerState   <- PeerInfo.make(announce.peers, workPieces.size.toLong)
+      meta <- meta.get
+      percent   = (meta.completed.toDouble / meta.bitfield.size) * 100
+      formatted = "%.2f".format(percent)
+      _ <- putStrLn(s"Completed $formatted% (${meta.completed} / ${meta.bitfield.size})")
+    } yield ()
+
+  def start(
+    metaRef: Ref[TorrentMeta]
+  ): ZIO[Tracker with Merger with Logging with Clock with Console, TrackerError, Unit] =
+    for {
+      meta <- metaRef.get
+      torrentFile = meta.torrentFile
+      workPieces  = meta.incompleteWork
+      announce    <- Tracker.announce(torrentFile)
+      workQueue   <- Queue.bounded[Work](torrentFile.pieceCount.toInt)
+      resultQueue <- Queue.bounded[Result](torrentFile.pieceCount.toInt)
+      _ <- Merger
+        .daemon(torrentFile, resultQueue)
+        .transduce(transducer(metaRef, resultQueue))
+        .runDrain
+        .fork
+      _         <- workQueue.offerAll(workPieces)
+      peerState <- PeerInfo.make(announce.peers, workPieces.size.toLong)
       _ <- ZIO.foreach(announce.peers) { peer =>
         logged(peer) {
           worker(torrentFile, peer, workQueue, resultQueue, peerState).fork
             .zipLeft(log.debug(s"Started $peer"))
         }
       }
-      _ <- workQueue.awaitShutdown
+      _ <- resultQueue.awaitShutdown
     } yield ()
 
   @nowarn
@@ -51,7 +76,6 @@ object Client {
         _ <- socket.readMessage
           .flatMap(msg => dispatch(msg, peer, state, socket).as(msg))
           .repeatUntil(_ == Unchoke)
-          .tap(_ => log.debug(s"Unchoked, requesting a piece..."))
         asd <- startDownload(work, results, state, peer, socket).forever
       } yield asd
     }
@@ -71,7 +95,6 @@ object Client {
       fullPiece = FullPiece.fromPieces(pieces)
       result    = Result(work, fullPiece)
       _ <- if (fullPiece.hash == work.hash) resultQueue.offer(result) else workQueue.offer(work)
-      _ <- log.debug(s"Validating hashes: ${fullPiece.hash == work.hash}")
     } yield fullPiece
 
   private def downloadFullPiece(work: Work, socket: MessageSocket) =
@@ -85,6 +108,15 @@ object Client {
           _ <- socket.readMessage
             .flatMap {
               case piece: Piece => fulfilledRequests.update(_.appended(piece))
+              case _ @ Choke => 
+                for {
+                  _ <- log.info(s"Choked...")
+                  _ <- socket.readMessage.repeatUntil(_ == Unchoke)
+                  _ <- log.info(s"Unchoked...")
+                  fullfilledLength <- fulfilledRequests.get.map(_.size)
+                  leftoverRequests = requests.drop(fullfilledLength)
+                  _ <- ZIO.foreach(leftoverRequests)(socket.writeMessage)
+                } yield ()   // TODO: PRETTIFY THIS
               case other        => log.warn(s"Got different kind of message: $other")
             }
             .repeatUntilM(_ => fulfilledRequests.get.map(_.size == requests.size))
@@ -93,13 +125,15 @@ object Client {
       }
       .runCollect
 
+      val cos = io.github.arainko.torrenties.domain.models.network.PeerMessage.Choke
+
   private def dispatch(
     message: PeerMessage,
     peer: PeerAddress,
     state: PeerInfo,
     socket: MessageSocket
   ) =
-    (message match {
+    message match {
       case KeepAlive =>
         socket.writeMessage(KeepAlive)
       case Choke =>
@@ -117,7 +151,7 @@ object Client {
       case Request(_, _, _) => ZIO.unit
       case Piece(_, _, _)   => ZIO.unit
       case Cancel(_, _, _)  => ZIO.unit
-    }) *> state.state.get.map(_.apply(peer)).tap(state => log.debug(s"Peer state: $state"))
+    }
 
   private def logged[R, E, A](peer: PeerAddress)(effect: ZIO[R, E, A]) =
     Logging.locally { ctx =>

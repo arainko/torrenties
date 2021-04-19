@@ -16,6 +16,7 @@ object torrent {
   final case class Leechers(value: Long)       extends AnyVal
   final case class InfoHash(value: ByteVector) extends AnyVal
   final case class PeerId(value: ByteVector)   extends AnyVal
+  final case class PieceIndex(value: Long)     extends AnyVal
 
   object PeerId {
 
@@ -83,6 +84,10 @@ object torrent {
     createdBy: Option[String] = None,
     encoding: Option[String] = None
   ) {
+
+    lazy val pieceCount: Long = info.fold(_.pieces.size, _.pieces.size) / 20
+
+    lazy val pieceLength: Long = info.fold(_.pieceLength, _.pieceLength)
 
     lazy val httpAnnounces: Seq[String] = (announce +: announceList.map(_.flatten).getOrElse(Seq.empty))
       .filter(_.startsWith("http"))
