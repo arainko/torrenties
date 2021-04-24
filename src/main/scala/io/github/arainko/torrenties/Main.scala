@@ -20,8 +20,6 @@ object Main extends App {
 
   private val folderConfig = TypesafeConfig.fromDefaultLoader(FolderConfig.descriptor)
 
-  // Ref.make(1).map(_.)
-
   private val program =
     for {
       torrentBytes <- ZStream.fromResource("debian.torrent").runCollect.map(_.toArray).map(ByteVector.apply)

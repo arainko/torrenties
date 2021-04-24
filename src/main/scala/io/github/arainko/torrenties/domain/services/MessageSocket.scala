@@ -41,16 +41,16 @@ final case class MessageSocket(socket: AsynchronousSocketChannel, peer: PeerAddr
       )
   }
 
-  private def readFully(lenght: Int) =
-    Ref.make(lenght).flatMap { leftover =>
-      ZStream.repeatEffectChunkOption {
-        for {
-          left  <- leftover.get.filterOrFail(_ != 0)(None)
-          chunk <- socket.readChunk(left).mapError(Option.apply)
-          _     <- leftover.update(_ - chunk.length)
-        } yield chunk
-      }.runCollect
-    }
+  private def readFully(length: Int) =
+    ZStream
+      .unfoldChunkM(length) { leftover =>
+        if (leftover == 0) ZIO.none
+        else
+          socket
+            .readChunk(leftover)
+            .map(chunk => Some(chunk -> (leftover - chunk.size)))
+      }
+      .runCollect
 
   def readMessage: Task[PeerMessage] = {
     for {

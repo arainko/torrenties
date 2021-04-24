@@ -8,7 +8,8 @@ import scodec.bits.ByteVector
 import zio.blocking.Blocking
 import zio.macros.accessible
 import zio.stream._
-import zio.{Queue, _}
+import zio._
+import zio.console._
 
 import java.nio.file.{OpenOption, Paths, StandardOpenOption}
 
@@ -20,7 +21,7 @@ object Merger {
     def daemon(torrent: TorrentFile, queue: Queue[Result]): Stream[Throwable, PieceIndex]
   }
 
-  val live: URLayer[Has[FolderConfig] with Blocking, Merger] =
+  val live: URLayer[Has[FolderConfig] with Blocking with Console, Merger] =
     ZLayer.fromFunction { env =>
       new Service {
         private val config                   = env.get[FolderConfig]
@@ -46,6 +47,7 @@ object Merger {
             .fromFile(path, pieceSize.toInt)
             .mapChunks(chunk => Chunk(chunk))
             .zipWithIndex
+            .tap { case (_, index) => putStrLn(s"Verifying integrity of piece #${index}") }
             .fold(emptyMeta) { (meta, pieceAndIndex) =>
               val (piece, index) = pieceAndIndex
               val hash           = torrent.info.hashPieces(index.toInt)

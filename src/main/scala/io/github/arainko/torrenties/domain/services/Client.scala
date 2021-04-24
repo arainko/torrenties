@@ -21,27 +21,12 @@ import zio.stream.ZTransducer
 
 object Client {
 
-  private def transducer(meta: Ref[TorrentMeta], queue: Queue[Result]) =
-    ZTransducer[PieceIndex]
-      .mapM(idx => meta.update(_.markCompleted(idx.value.toInt)))
-      .mapM(_ => logProgress(meta))
-      .mapM(_ => ZIO.ifM(meta.get.map(_.isComplete))(queue.shutdown, ZIO.unit))
-
-  private def logProgress(meta: Ref[TorrentMeta]) =
-    for {
-      meta <- meta.get
-      percent   = (meta.completed.toDouble / meta.bitfield.size) * 100
-      formatted = "%.2f".format(percent)
-      _ <- putStrLn(s"Completed $formatted% (${meta.completed} / ${meta.bitfield.size})")
-    } yield ()
-
   def start(
     metaRef: Ref[TorrentMeta]
-  ): ZIO[Tracker with Merger with Logging with Clock with Console, TrackerError, Unit] =
+  ): ZIO[Tracker with Merger with Logging with ZEnv, TrackerError, Unit] =
     for {
       meta <- metaRef.get
       torrentFile = meta.torrentFile
-      workPieces  = meta.incompleteWork
       announce    <- Tracker.announce(torrentFile)
       workQueue   <- Queue.bounded[Work](torrentFile.pieceCount.toInt)
       resultQueue <- Queue.bounded[Result](torrentFile.pieceCount.toInt)
@@ -50,8 +35,8 @@ object Client {
         .transduce(transducer(metaRef, resultQueue))
         .runDrain
         .fork
-      _         <- workQueue.offerAll(workPieces)
-      peerState <- PeerInfo.make(announce.peers, workPieces.size.toLong)
+      _         <- workQueue.offerAll(meta.incompleteWork)
+      peerState <- PeerInfo.make(announce.peers, meta.incompleteWork.size.toLong)
       _ <- ZIO.foreach(announce.peers) { peer =>
         logged(peer) {
           worker(torrentFile, peer, workQueue, resultQueue, peerState).fork
@@ -107,25 +92,22 @@ object Client {
           _                 <- ZIO.foreach(requests)(socket.writeMessage)
           _ <- socket.readMessage
             .flatMap {
-              case piece: Piece => fulfilledRequests.update(_.appended(piece))
-              case _ @ Choke => 
-                for {
-                  _ <- log.info(s"Choked...")
-                  _ <- socket.readMessage.repeatUntil(_ == Unchoke)
-                  _ <- log.info(s"Unchoked...")
-                  fullfilledLength <- fulfilledRequests.get.map(_.size)
-                  leftoverRequests = requests.drop(fullfilledLength)
-                  _ <- ZIO.foreach(leftoverRequests)(socket.writeMessage)
-                } yield ()   // TODO: PRETTIFY THIS
-              case other        => log.warn(s"Got different kind of message: $other")
+              case piece: Piece => fulfilledRequests.update(_ :+ piece)
+              case _ @Choke =>
+                socket.readMessage
+                  .repeatUntil(_ == Unchoke)
+                  .zipRight(fulfilledRequests.get.map(_.size))
+                  .flatMap { fullfilledLength =>
+                    val leftoverRequests = requests.drop(fullfilledLength)
+                    ZIO.foreach(leftoverRequests)(socket.writeMessage)
+                  }
+              case other => log.warn(s"Got different kind of message: $other")
             }
             .repeatUntilM(_ => fulfilledRequests.get.map(_.size == requests.size))
           pieces <- fulfilledRequests.get
         } yield pieces
       }
       .runCollect
-
-      val cos = io.github.arainko.torrenties.domain.models.network.PeerMessage.Choke
 
   private def dispatch(
     message: PeerMessage,
@@ -159,5 +141,19 @@ object Client {
         .annotate(LogAnnotation.Name, peer.address.value :: Nil)
         .annotate(LogAnnotation.Timestamp, OffsetDateTime.now)
     }(effect)
+
+  private def transducer(meta: Ref[TorrentMeta], queue: Queue[Result]) =
+    ZTransducer[PieceIndex]
+      .mapM(idx => meta.update(_.markCompleted(idx.value.toInt)))
+      .mapM(_ => logProgress(meta))
+      .mapM(_ => ZIO.ifM(meta.get.map(_.isComplete))(queue.shutdown, ZIO.unit))
+
+  private def logProgress(meta: Ref[TorrentMeta]) =
+    for {
+      meta <- meta.get
+      percent   = (meta.completed.toDouble / meta.bitfield.size) * 100
+      formatted = "%.2f".format(percent)
+      _ <- putStrLn(s"Completed $formatted% (${meta.completed} / ${meta.bitfield.size})")
+    } yield ()
 
 }
