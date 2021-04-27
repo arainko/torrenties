@@ -18,7 +18,7 @@ object Merger {
 
   trait Service {
     def meta(torrent: TorrentFile): UIO[TorrentMeta]
-    def daemon(torrent: TorrentFile, queue: Queue[Result]): Stream[Throwable, PieceIndex]
+    def daemon(torrent: TorrentFile, queue: Queue[Result]): Stream[Throwable, Result]
   }
 
   val live: URLayer[Has[FolderConfig] with Blocking with Console, Merger] =
@@ -52,13 +52,13 @@ object Merger {
               val (piece, index) = pieceAndIndex
               val hash           = torrent.info.hashPieces(index.toInt)
               val pieceHash      = ByteVector(piece).digest("SHA-1")
-              if (hash == pieceHash) meta.markCompleted(index.toInt) else meta
+              if (hash == pieceHash) meta.markCompleted(index.toInt, piece.size.toLong) else meta
             }
             .fold(_ => emptyMeta, identity)
             .provide(env)
         }
 
-        def daemon(torrent: TorrentFile, queue: Queue[Result]): Stream[Throwable, PieceIndex] =
+        def daemon(torrent: TorrentFile, queue: Queue[Result]): Stream[Throwable, Result] =
           ZStream
             .fromQueue(queue)
             .mapM { res =>
@@ -66,7 +66,7 @@ object Merger {
               ZStream
                 .fromChunk(res.fullPiece.chunk)
                 .run(fileSink(torrent, res))
-                .as(PieceIndex(res.work.index))
+                .as(res)
             }
             .provide(env)
       }

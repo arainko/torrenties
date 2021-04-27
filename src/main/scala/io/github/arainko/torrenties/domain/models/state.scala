@@ -72,12 +72,18 @@ object state {
     }
   }
 
-  final case class TorrentMeta(torrentFile: TorrentFile, bitfield: Chunk[Boolean], completed: Int) {
+  final case class TorrentMeta(
+    torrentFile: TorrentFile,
+    bitfield: Chunk[Boolean],
+    completedPieces: Int,
+    completedBytes: Long
+  ) {
 
-    def markCompleted(pieceIndex: Int): TorrentMeta =
+    def markCompleted(pieceIndex: Int, pieceBytes: Long): TorrentMeta =
       this.copy(
         bitfield = bitfield.updated(pieceIndex, true),
-        completed = completed + 1
+        completedPieces = completedPieces + 1,
+        completedBytes = completedBytes + pieceBytes
       )
 
     def incompleteWork: Vector[Work] = {
@@ -89,12 +95,12 @@ object state {
         .foldLeft(Vector.empty[Work])(_ :+ work(_))
     }
 
-    def isComplete: Boolean    = torrentFile.pieceCount.toInt == completed
+    def isComplete: Boolean    = torrentFile.pieceCount.toInt == completedPieces
     def isNotComplete: Boolean = !isComplete
   }
 
   object TorrentMeta {
-    def empty(torrent: TorrentFile): TorrentMeta = TorrentMeta(torrent, Chunk.fill(torrent.pieceCount.toInt)(false), 0)
+    def empty(torrent: TorrentFile): TorrentMeta = TorrentMeta(torrent, Chunk.fill(torrent.pieceCount.toInt)(false), 0, 0)
 
   }
 }

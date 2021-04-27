@@ -7,6 +7,7 @@ import io.github.arainko.torrenties.domain.codecs.bencode._
 import io.github.arainko.torrenties.domain.models.errors._
 import io.github.arainko.torrenties.domain.models.torrent.Info._
 import io.github.arainko.torrenties.domain.models.torrent._
+import io.github.arainko.torrenties.domain.models.state._
 import scodec.bits._
 import sttp.client3._
 import sttp.client3.asynchttpclient.zio.SttpClient
@@ -21,7 +22,7 @@ import java.nio.charset.StandardCharsets
 object Tracker {
 
   trait Service {
-    def announce(torrent: TorrentFile): IO[TrackerError, Announce]
+    def announce(torrent: TorrentMeta): IO[TrackerError, Announce]
   }
 
   val live: URLayer[SttpClient, Tracker] = ZLayer.fromService { backend =>
@@ -33,11 +34,11 @@ object Tracker {
           StandardCharsets.ISO_8859_1
         )
 
-      private def announceRequests(torrent: TorrentFile) = {
-        val urls     = torrent.httpAnnounces
-        val infoHash = urlEncoded(torrent.info.infoHash.value)
+      private def announceRequests(meta: TorrentMeta) = {
+        val urls     = meta.torrentFile.httpAnnounces
+        val infoHash = urlEncoded(meta.torrentFile.info.infoHash.value)
         val peerId   = urlEncoded(PeerId.default.value)
-        val length = torrent.info match {
+        val length = meta.torrentFile.info match {
           case SingleFile(pieceLength, pieces, name, length)  => length
           case MultipleFile(pieceLength, pieces, name, files) => files.foldLeft(0L)(_ + _.length)
         }
@@ -48,11 +49,11 @@ object Tracker {
           "corrupt"    -> "0",
           "compact"    -> "1",
           "event"      -> "started",
-          "left"       -> s"$length"
+          "left"       -> s"${length - meta.completedBytes}"
         )
         urls
           .map { announce =>
-            uri"${torrent.announce}"
+            uri"${meta.torrentFile.announce}"
               .addQuerySegment(
                 Uri.QuerySegment.KeyValue("info_hash", infoHash, valueEncoding = identity)
               )
@@ -70,7 +71,7 @@ object Tracker {
           )
       }
 
-      def announce(torrent: TorrentFile): IO[TrackerError, Announce] =
+      def announce(torrent: TorrentMeta): IO[TrackerError, Announce] =
         announceRequests(torrent)
           .map { request =>
             for {

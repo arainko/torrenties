@@ -34,6 +34,7 @@ object Main extends App {
       .injectCustom(
         Tracker.live,
         Merger.live,
+        Downloader.live,
         AsyncHttpClientZioBackend.layer().orDie,
         folderConfig.orDie,
         logging
