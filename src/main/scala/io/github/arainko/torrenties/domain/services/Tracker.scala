@@ -23,37 +23,42 @@ object Tracker {
 
   trait Service {
     def announce(torrent: TorrentMeta): IO[TrackerError, Announce]
+    def reannounce(torrent: TorrentMeta, sessionDiff: SessionDiff): IO[TrackerError, Announce]
   }
 
   val live: URLayer[SttpClient, Tracker] = ZLayer.fromService { backend =>
     new Service {
 
-      private def urlEncoded(hash: ByteVector) =
-        URLEncoder.encode(
-          new String(hash.toArray, StandardCharsets.ISO_8859_1),
-          StandardCharsets.ISO_8859_1
-        )
+      def announce(torrent: TorrentMeta): IO[TrackerError, Announce] = trackerRequest(torrent, announceParamas(torrent))
 
-      private def announceRequests(meta: TorrentMeta) = {
+      def reannounce(torrent: TorrentMeta, sessionDiff: SessionDiff): IO[TrackerError, Announce] =
+        trackerRequest(torrent, reannounceParams(torrent, sessionDiff))
+
+      private def trackerRequest(torrent: TorrentMeta, params: Map[String, String]) =
+        announceRequests(torrent, announceParamas(torrent))
+          .map { request =>
+            for {
+              bencode <- backend
+                .send(request)
+                .map(_.body)
+                .mapError(e => TrackerError.TrackerFailure(e.getMessage))
+                .flatMap(r => ZIO.fromEither(r.leftMap(e => TrackerError.MalformedBencode(e.message))))
+              decoded <- ZIO.fromEither(bencode.cursor.as[Announce]).mapError {
+                case BencodeError.UnexpectedValue(msg) => TrackerError.MalformedBencode(msg)
+              }
+            } yield decoded
+          }
+          .reduceLeftOption(_.orElse(_))
+          .getOrElse(ZIO.fail(TrackerError.NoHttpAnnounces))
+
+      private def announceRequests(meta: TorrentMeta, params: Map[String, String]) = {
         val urls     = meta.torrentFile.httpAnnounces
         val infoHash = urlEncoded(meta.torrentFile.info.infoHash.value)
         val peerId   = urlEncoded(PeerId.default.value)
-        val length = meta.torrentFile.info match {
-          case SingleFile(pieceLength, pieces, name, length)  => length
-          case MultipleFile(pieceLength, pieces, name, files) => files.foldLeft(0L)(_ + _.length)
-        }
-        val params = Map(
-          "port"       -> "6881",
-          "uploaded"   -> "0",
-          "downloaded" -> "0",
-          "corrupt"    -> "0",
-          "compact"    -> "1",
-          "event"      -> "started",
-          "left"       -> s"${length - meta.completedBytes}"
-        )
+
         urls
           .map { announce =>
-            uri"${meta.torrentFile.announce}"
+            uri"$announce"
               .addQuerySegment(
                 Uri.QuerySegment.KeyValue("info_hash", infoHash, valueEncoding = identity)
               )
@@ -71,22 +76,42 @@ object Tracker {
           )
       }
 
-      def announce(torrent: TorrentMeta): IO[TrackerError, Announce] =
-        announceRequests(torrent)
-          .map { request =>
-            for {
-              bencode <- backend
-                .send(request)
-                .map(_.body)
-                .mapError(e => TrackerError.TrackerFailure(e.getMessage))
-                .flatMap(r => ZIO.fromEither(r.leftMap(e => TrackerError.MalformedBencode(e.message))))
-              decoded <- ZIO.fromEither(bencode.cursor.as[Announce]).mapError {
-                case BencodeError.UnexpectedValue(msg) => TrackerError.MalformedBencode(msg)
-              }
-            } yield decoded
-          }
-          .reduceLeftOption(_.orElse(_))
-          .getOrElse(ZIO.fail(TrackerError.NoHttpAnnounces))
+      private def announceParamas(meta: TorrentMeta) = {
+        val length = meta.torrentFile.info match {
+          case SingleFile(pieceLength, pieces, name, length)  => length
+          case MultipleFile(pieceLength, pieces, name, files) => files.foldLeft(0L)(_ + _.length)
+        }
+        Map(
+          "port"       -> "6881",
+          "uploaded"   -> "0",
+          "downloaded" -> "0",
+          "corrupt"    -> "0",
+          "compact"    -> "1",
+          "event"      -> "started",
+          "left"       -> s"${length - meta.completedBytes}"
+        )
+      }
+
+      private def reannounceParams(meta: TorrentMeta, diff: SessionDiff) = {
+        val length = meta.torrentFile.info match {
+          case SingleFile(pieceLength, pieces, name, length)  => length
+          case MultipleFile(pieceLength, pieces, name, files) => files.foldLeft(0L)(_ + _.length)
+        }
+        Map(
+          "port"       -> "6881",
+          "uploaded"   -> s"${diff.uploadedDiff}",
+          "downloaded" -> s"${diff.downloadedDiff}",
+          "corrupt"    -> "0",
+          "compact"    -> "1",
+          "left"       -> s"${length - meta.completedBytes}"
+        )
+      }
+
+      private def urlEncoded(hash: ByteVector) =
+        URLEncoder.encode(
+          new String(hash.toArray, StandardCharsets.ISO_8859_1),
+          StandardCharsets.ISO_8859_1
+        )
     }
   }
 }

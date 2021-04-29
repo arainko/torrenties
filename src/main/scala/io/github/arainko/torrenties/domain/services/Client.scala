@@ -15,7 +15,6 @@ object Client {
     for {
       meta <- metaRef.get
       torrentFile = meta.torrentFile
-      announce    <- Tracker.announce(meta)
       workQueue   <- Queue.bounded[Work](torrentFile.pieceCount.toInt)
       resultQueue <- Queue.bounded[Result](torrentFile.pieceCount.toInt)
       _ <- Merger
@@ -24,8 +23,7 @@ object Client {
         .runDrain
         .fork
       _         <- workQueue.offerAll(meta.incompleteWork)
-      peerState <- PeerInfo.make(announce.peers, meta.incompleteWork.size.toLong)
-      _         <- Downloader.daemon(torrentFile, workQueue, resultQueue, peerState)
+      _         <- Downloader.daemon(metaRef, workQueue, resultQueue)
       shutdown  <- resultQueue.awaitShutdown
     } yield shutdown
 

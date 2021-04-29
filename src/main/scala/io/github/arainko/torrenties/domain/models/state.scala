@@ -95,12 +95,18 @@ object state {
         .foldLeft(Vector.empty[Work])(_ :+ work(_))
     }
 
+    def diff(that: TorrentMeta): SessionDiff = {
+      val downloadedDiff = that.completedBytes - this.completedBytes
+      SessionDiff(downloadedDiff, 0)
+    }
+
     def isComplete: Boolean    = torrentFile.pieceCount.toInt == completedPieces
     def isNotComplete: Boolean = !isComplete
   }
 
   object TorrentMeta {
     def empty(torrent: TorrentFile): TorrentMeta = TorrentMeta(torrent, Chunk.fill(torrent.pieceCount.toInt)(false), 0, 0)
-
   }
+
+  final case class SessionDiff(downloadedDiff: Long, uploadedDiff: Long)
 }

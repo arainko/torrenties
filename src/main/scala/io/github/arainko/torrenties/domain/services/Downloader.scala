@@ -15,6 +15,7 @@ import zio.stream.ZStream
 import zio.{Queue, _}
 
 import java.time.OffsetDateTime
+import scala.annotation.nowarn
 
 @accessible
 object Downloader {
@@ -22,29 +23,71 @@ object Downloader {
   trait Service {
 
     def daemon(
-      torrent: TorrentFile,
+      meta: Ref[TorrentMeta],
       workQueue: Queue[Work],
-      resultQueue: Queue[Result],
-      peerInfo: PeerInfo
-    ): ZIO[Any, Nothing, Unit]
+      resultQueue: Queue[Result]
+    ): IO[TrackerError, Unit]
   }
 
-  val live: URLayer[Logging with Clock, Downloader] = ZLayer.fromFunction { env =>
+  val live: URLayer[Tracker with Logging with Clock, Downloader] = ZLayer.fromFunction { env =>
     new Service {
       def daemon(
-        torrent: TorrentFile,
+        meta: Ref[TorrentMeta],
         workQueue: Queue[Work],
-        resultQueue: Queue[Result],
-        peerInfo: PeerInfo
-      ): ZIO[Any, Nothing, Unit] = {
+        resultQueue: Queue[Result]
+      ): IO[TrackerError, Unit] = {
         for {
-          peers <- peerInfo.state.get.map(_.keySet)
+          initialMeta <- meta.get
+          announce    <- Tracker.announce(initialMeta)
+          peerInfo    <- PeerInfo.make(announce.peers, initialMeta.torrentFile.pieceCount)
+          peers       <- peerInfo.state.get.map(_.keySet)
           workers = peers
             .map(MessageSocket.apply)
-            .map(_.use(worker(torrent, workQueue, resultQueue, peerInfo)))
-          _ <- ZIO.forkAll_(workers)
-        } yield ()
+            .map(_.use(worker(initialMeta.torrentFile, workQueue, resultQueue, peerInfo)))
+          _     <- ZIO.forkAll_(workers)
+          _     <- workerDaemon(announce, peerInfo, meta, initialMeta, workQueue, resultQueue).fork
+          await <- resultQueue.awaitShutdown
+        } yield await
       }.provide(env)
+
+      private def workerDaemon(
+        announce: Announce,
+        state: PeerInfo,
+        metaRef: Ref[TorrentMeta],
+        initialMeta: TorrentMeta,
+        workQueue: Queue[Work],
+        resultQueue: Queue[Result]
+      ) =
+        for {
+          meta <- metaRef.get
+          sessionDiff = metaRef.map(_.diff(initialMeta))
+          peersRef    = state.state.map(_.keySet)
+          reannounceAfterInterval =
+            for {
+              _           <- ZIO.sleep(announce.interval)
+              _           <- log.info(s"Reannouncing after interval")
+              currentMeta <- metaRef.get
+              currentDiff <- sessionDiff.get
+              reannounce  <- Tracker.reannounce(currentMeta, currentDiff)
+            } yield reannounce
+          reannounceWhenLacksPeers =
+            for {
+              _ <- peersRef.get.map(_.size).repeat {
+                Schedule.recurWhile[Int](_ > 15) && Schedule.fixed(announce.interval.dividedBy(3))
+              }
+              _           <- log.info(s"Reannouncing after lack of peers")
+              currentMeta <- metaRef.get
+              currentDiff <- sessionDiff.get
+              reannounce  <- Tracker.reannounce(currentMeta, currentDiff)
+            } yield reannounce
+          daemon <- reannounceAfterInterval
+            .race(reannounceWhenLacksPeers)
+            .map(_.peers)
+            .flatMap(state.addPeers)
+            .map(_.map(peer => MessageSocket(peer).use(worker(initialMeta.torrentFile, workQueue, resultQueue, state))))
+            .flatMap(ZIO.forkAll_(_))
+            .forever
+        } yield daemon
 
       private def worker(
         torrentFile: TorrentFile,
@@ -59,9 +102,10 @@ object Downloader {
             _ <- socket.readMessage
               .flatMap(msg => updatePeerState(msg, state, socket).as(msg))
               .repeatUntil(_ == Unchoke)
+              .timeoutFail(TimeoutError)(3.minutes)
             never <- startDownload(work, results, state, socket.peer, socket).forever
           } yield never
-        }
+        }.onError(_ => state.removePeer(socket.peer))
 
       private def startDownload(
         workQueue: Queue[Work],
