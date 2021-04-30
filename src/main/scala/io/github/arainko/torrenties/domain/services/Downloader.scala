@@ -6,16 +6,14 @@ import io.github.arainko.torrenties.domain.models.network.PeerMessage._
 import io.github.arainko.torrenties.domain.models.network.{PeerMessage, _}
 import io.github.arainko.torrenties.domain.models.state._
 import io.github.arainko.torrenties.domain.models.torrent._
-import io.github.arainko.torrenties.domain.syntax._
+import zio._
 import zio.clock.Clock
 import zio.duration._
 import zio.logging.{LogAnnotation, Logging, _}
 import zio.macros.accessible
 import zio.stream.ZStream
-import zio.{Queue, _}
 
 import java.time.OffsetDateTime
-import scala.annotation.nowarn
 
 @accessible
 object Downloader {
@@ -23,76 +21,68 @@ object Downloader {
   trait Service {
 
     def daemon(
-      meta: Ref[TorrentMeta],
-      workQueue: Queue[Work],
-      resultQueue: Queue[Result]
+      session: Session,
+      pipeline: Pipeline
     ): IO[TrackerError, Unit]
   }
 
   val live: URLayer[Tracker with Logging with Clock, Downloader] = ZLayer.fromFunction { env =>
     new Service {
       def daemon(
-        meta: Ref[TorrentMeta],
-        workQueue: Queue[Work],
-        resultQueue: Queue[Result]
+        session: Session,
+        pipeline: Pipeline
       ): IO[TrackerError, Unit] = {
         for {
-          initialMeta <- meta.get
-          announce    <- Tracker.announce(initialMeta)
-          peerInfo    <- PeerInfo.make(announce.peers, initialMeta.torrentFile.pieceCount)
-          peers       <- peerInfo.state.get.map(_.keySet)
+          announce <- Tracker.announce(session.initialMeta)
+          peerInfo <- PeerInfo.make(announce.peers, session.torrent.pieceCount)
+          peers    <- peerInfo.peers
           workers = peers
             .map(MessageSocket.apply)
-            .map(_.use(worker(initialMeta.torrentFile, workQueue, resultQueue, peerInfo)))
+            .map(_.use(worker(session.torrent, pipeline, peerInfo)))
           _     <- ZIO.forkAll_(workers)
-          _     <- workerDaemon(announce, peerInfo, meta, initialMeta, workQueue, resultQueue).fork
-          await <- resultQueue.awaitShutdown
+          _     <- workerDaemon(announce, peerInfo, session, pipeline).fork
+          await <- pipeline.awaitShutdown
         } yield await
       }.provide(env)
 
       private def workerDaemon(
         announce: Announce,
         state: PeerInfo,
-        metaRef: Ref[TorrentMeta],
-        initialMeta: TorrentMeta,
-        workQueue: Queue[Work],
-        resultQueue: Queue[Result]
-      ) =
-        for {
-          meta <- metaRef.get
-          sessionDiff = metaRef.map(_.diff(initialMeta))
-          peersRef    = state.state.map(_.keySet)
-          reannounceAfterInterval =
-            for {
-              _           <- ZIO.sleep(announce.interval)
-              _           <- log.info(s"Reannouncing after interval")
-              currentMeta <- metaRef.get
-              currentDiff <- sessionDiff.get
-              reannounce  <- Tracker.reannounce(currentMeta, currentDiff)
-            } yield reannounce
-          reannounceWhenLacksPeers =
-            for {
-              _ <- peersRef.get.map(_.size).repeat {
-                Schedule.recurWhile[Int](_ > 15) && Schedule.fixed(announce.interval.dividedBy(3))
-              }
-              _           <- log.info(s"Reannouncing after lack of peers")
-              currentMeta <- metaRef.get
-              currentDiff <- sessionDiff.get
-              reannounce  <- Tracker.reannounce(currentMeta, currentDiff)
-            } yield reannounce
-          daemon <- reannounceAfterInterval
-            .race(reannounceWhenLacksPeers)
-            .map(_.peers)
-            .flatMap(state.addPeers)
-            .map(_.map(peer => MessageSocket(peer).use(worker(initialMeta.torrentFile, workQueue, resultQueue, state))))
-            .flatMap(ZIO.forkAll_(_))
-            .forever
-        } yield daemon
+        session: Session,
+        pipeline: Pipeline
+      ) = {
+        val reannounceAfterInterval =
+          for {
+            _           <- ZIO.sleep(announce.interval)
+            _           <- log.info(s"Reannouncing after interval")
+            currentMeta <- session.currentMeta
+            currentDiff <- session.diff
+            reannounce  <- Tracker.reannounce(currentMeta, currentDiff)
+          } yield reannounce
+
+        val reannounceWhenLacksPeers =
+          for {
+            _ <- state.peers.map(_.size).repeat {
+              Schedule.recurWhile[Int](_ > 15) && Schedule.fixed(announce.interval.dividedBy(3))
+            }
+            _           <- log.info(s"Reannouncing after lack of peers")
+            currentMeta <- session.currentMeta
+            currentDiff <- session.diff
+            reannounce  <- Tracker.reannounce(currentMeta, currentDiff)
+          } yield reannounce
+
+        reannounceAfterInterval
+          .race(reannounceWhenLacksPeers)
+          .map(_.peers)
+          .flatMap(state ++ _)
+          .map(_.map(peer => MessageSocket(peer).use(worker(session.torrent, pipeline, state))))
+          .flatMap(ZIO.forkAll_(_))
+          .forever
+      }
 
       private def worker(
         torrentFile: TorrentFile,
-        work: Queue[Work],
-        results: Queue[Result],
+        pipeline: Pipeline,
         state: PeerInfo
       )(socket: MessageSocket) =
         logged(socket.peer) {
@@ -103,25 +93,24 @@ object Downloader {
               .flatMap(msg => updatePeerState(msg, state, socket).as(msg))
               .repeatUntil(_ == Unchoke)
               .timeoutFail(TimeoutError)(3.minutes)
-            never <- startDownload(work, results, state, socket.peer, socket).forever
+            never <- startDownload(pipeline, state, socket.peer, socket).forever
           } yield never
-        }.onError(_ => state.removePeer(socket.peer))
+        }.onError(_ => state - socket.peer)
 
       private def startDownload(
-        workQueue: Queue[Work],
-        resultQueue: Queue[Result],
+        pipeline: Pipeline,
         state: PeerInfo,
         peer: PeerAddress,
         socket: MessageSocket
       ) =
         for {
-          work <- workQueue.takeFilterM(w => state.hasPiece(peer, w.index))
+          work <- pipeline.takeWork(w => state.hasPiece(peer, w.index))
           pieces <- downloadFullPiece(work, socket)
             .timeoutFail(TimeoutError)(2.minutes)
-            .onError(_ => workQueue.offer(work))
+            .onError(_ => pipeline.scheduleWork(work))
           fullPiece = FullPiece.fromPieces(pieces)
           result    = Result(work, fullPiece)
-          _ <- if (fullPiece.hash == work.hash) resultQueue.offer(result) else workQueue.offer(work)
+          _ <- if (fullPiece.hash == work.hash) pipeline.pushResult(result) else pipeline.scheduleWork(work)
         } yield fullPiece
 
       private def downloadFullPiece(work: Work, socket: MessageSocket) =

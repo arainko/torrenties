@@ -26,7 +26,8 @@ object Main extends App {
       parsed = Bencode.parseAs[TorrentFile](torrentBytes)
       torrent <- ZIO.fromEither(parsed).mapError(SerializationError.fromBencodeError)
       meta    <- Merger.meta(torrent)
-      _       <- if (meta.isNotComplete) Ref.make(meta).flatMap(Client.start) else ZIO.unit
+      session <- Session.fromMeta(meta)
+      _       <- if (meta.isNotComplete) Client.start(session) else ZIO.unit
     } yield ()
 
   def run(args: List[String]): URIO[ZEnv, ExitCode] =

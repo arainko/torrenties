@@ -28,15 +28,17 @@ final case class PeerInfo(state: Ref[Map[PeerAddress, PeerState]]) extends AnyVa
 
   import PeerInfo._
 
-  def addPeers(peers: Seq[PeerAddress]): UIO[Set[PeerAddress]] = 
+  def peers: UIO[Set[PeerAddress]] = state.get.map(_.keySet)
+
+  def ++ (peers: Seq[PeerAddress]): UIO[Set[PeerAddress]] = 
     for {
-      currentPeers <- state.get.map(_.keySet)
+      currentPeers <- this.peers
       newlyAdded = peers.toSet.diff(currentPeers)
       withState = newlyAdded.map(_ -> PeerState.initial(0))
       _ <- state.update(_ ++ withState)
     } yield newlyAdded
 
-  def removePeer(peer: PeerAddress): UIO[Unit] = state.update(_ - peer)
+  def - (peer: PeerAddress): UIO[Unit] = state.update(_ - peer)
   
 
   def hasPiece(peer: PeerAddress, index: Long): UIO[Boolean] =

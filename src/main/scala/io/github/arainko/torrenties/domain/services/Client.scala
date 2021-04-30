@@ -10,32 +10,28 @@ import zio.stream.ZTransducer
 object Client {
 
   def start(
-    metaRef: Ref[TorrentMeta]
+    session: Session
   ): ZIO[Tracker with Merger with Downloader with Console, TrackerError, Unit] =
     for {
-      meta <- metaRef.get
-      torrentFile = meta.torrentFile
-      workQueue   <- Queue.bounded[Work](torrentFile.pieceCount.toInt)
-      resultQueue <- Queue.bounded[Result](torrentFile.pieceCount.toInt)
+      pipeline <- Pipeline.fromMeta(session.initialMeta)
       _ <- Merger
-        .daemon(torrentFile, resultQueue)
-        .transduce(shutdownWatcher(metaRef, resultQueue))
+        .daemon(session.torrent, pipeline.results)
+        .transduce(shutdownWatcher(session, pipeline))
         .runDrain
         .fork
-      _         <- workQueue.offerAll(meta.incompleteWork)
-      _         <- Downloader.daemon(metaRef, workQueue, resultQueue)
-      shutdown  <- resultQueue.awaitShutdown
+      _         <- Downloader.daemon(session, pipeline)
+      shutdown  <- pipeline.awaitShutdown
     } yield shutdown
 
-  private def shutdownWatcher(meta: Ref[TorrentMeta], queue: Queue[Result]) =
+  private def shutdownWatcher(session: Session, pipeline: Pipeline) =
     ZTransducer[Result]
-      .mapM(res => meta.update(_.markCompleted(res.work.index.toInt, res.work.length)))
-      .mapM(_ => logProgress(meta))
-      .mapM(_ => ZIO.ifM(meta.get.map(_.isComplete))(queue.shutdown, ZIO.unit))
+      .mapM(res => session.markCompleted(res.work.index.toInt, res.work.length))
+      .mapM(_ => logProgress(session))
+      .mapM(_ => ZIO.ifM(session.isComplete)(pipeline.shutdown, ZIO.unit))
 
-  private def logProgress(meta: Ref[TorrentMeta]) =
+  private def logProgress(session: Session) =
     for {
-      meta <- meta.get
+      meta <- session.currentMeta
       percent   = (meta.completedPieces.toDouble / meta.bitfield.size) * 100
       formatted = "%.2f".format(percent)
       _ <- putStrLn(s"Completed $formatted% (${meta.completedPieces} / ${meta.bitfield.size})")

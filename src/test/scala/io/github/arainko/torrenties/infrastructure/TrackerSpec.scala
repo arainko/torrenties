@@ -1,19 +1,11 @@
 package io.github.arainko.torrenties.infrastructure
 
-import zio._
-import zio.clock.Clock
-import zio.duration._
-import zio.magic._
-import zio.test._
-import io.github.arainko.torrenties.domain.services.Server
-import zio.stream.ZStream
-import zio.console._
-import zio.nio.channels.AsynchronousSocketChannel
-import io.github.arainko.torrenties.domain.services.MessageSocket
 import io.github.arainko.torrenties.domain.models.network
-import zio.logging.Logging
-import zio.logging.LogLevel
-import zio.logging.log
+import io.github.arainko.torrenties.domain.services.MessageSocket
+import zio._
+import zio.console._
+import zio.duration._
+import zio.test._
 
 object TrackerSpec extends DefaultRunnableSpec {
 
