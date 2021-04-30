@@ -8,6 +8,8 @@ import zio.Chunk
 
 object state {
 
+  final case class StateBitfield(value: BitVector) extends AnyVal
+
   sealed trait ChokeState
 
   object ChokeState {
@@ -22,25 +24,22 @@ object state {
     case object NotInterested extends InterestState
   }
 
-  @Lenses final case class PeerState(
+  @Lenses
+  final case class PeerState(
     chokeState: ChokeState,
     interestState: InterestState,
-    peerChokeState: ChokeState,
-    peerInterestState: InterestState,
-    peerBitfield: BitVector
+    bitfield: StateBitfield
   ) {
-    def hasPiece(index: Long): Boolean = peerBitfield.lift(index).getOrElse(false)
+    def hasPiece(index: Long): Boolean = bitfield.value.lift(index).getOrElse(false)
   }
 
   object PeerState {
 
     def initial(pieceCount: Long): PeerState =
       PeerState(
-        ChokeState.Choked,
-        InterestState.NotInterested,
-        ChokeState.Choked,
-        InterestState.NotInterested,
-        BitVector.fill(pieceCount)(false)
+        chokeState = ChokeState.Choked,
+        interestState = InterestState.NotInterested,
+        bitfield = StateBitfield(BitVector.fill(pieceCount)(false))
       )
   }
 
@@ -55,13 +54,12 @@ object state {
         Option.when(lengthLeft > 0)(request -> (lengthLeft - currentBlockSize))
       }
     }
+
   }
 
   final case class FullPiece(bytes: ByteVector, hash: ByteVector) {
     lazy val chunk: Chunk[Byte] = Chunk.fromArray(bytes.toArray)
   }
-
-  final case class Result(work: Work, fullPiece: FullPiece)
 
   object FullPiece {
 
@@ -71,6 +69,8 @@ object state {
       FullPiece(bytes, hash)
     }
   }
+
+  final case class Result(work: Work, fullPiece: FullPiece)
 
   final case class TorrentMeta(
     torrentFile: TorrentFile,
@@ -105,7 +105,9 @@ object state {
   }
 
   object TorrentMeta {
-    def empty(torrent: TorrentFile): TorrentMeta = TorrentMeta(torrent, Chunk.fill(torrent.pieceCount.toInt)(false), 0, 0)
+
+    def empty(torrent: TorrentFile): TorrentMeta =
+      TorrentMeta(torrent, Chunk.fill(torrent.pieceCount.toInt)(false), 0, 0)
   }
 
   final case class SessionDiff(downloadedDiff: Long, uploadedDiff: Long)

@@ -28,6 +28,7 @@ object Downloader {
 
   val live: URLayer[Tracker with Logging with Clock, Downloader] = ZLayer.fromFunction { env =>
     new Service {
+
       def daemon(
         session: Session,
         pipeline: Pipeline
@@ -156,17 +157,17 @@ object Downloader {
           case KeepAlive =>
             socket.writeMessage(KeepAlive)
           case Choke =>
-            state.updatePeerChoke(socket.peer, ChokeState.Choked)
+            state.update[ChokeState](socket.peer, ChokeState.Choked)
           case Unchoke =>
-            state.updatePeerChoke(socket.peer, ChokeState.Unchoked)
+            state.update[ChokeState](socket.peer, ChokeState.Unchoked)
           case Interested =>
-            state.updatePeerInterest(socket.peer, InterestState.Interested)
+            state.update[InterestState](socket.peer, InterestState.Interested)
           case NotInterested =>
-            state.updatePeerInterest(socket.peer, InterestState.NotInterested)
+            state.update[InterestState](socket.peer, InterestState.NotInterested)
           case Have(pieceIndex) =>
             state.updateBitfield(socket.peer, pieceIndex.value, true)
           case Bitfield(payload) =>
-            state.setBitfield(socket.peer, payload)
+            state.update[StateBitfield](socket.peer, StateBitfield(payload))
           case _ => ZIO.unit
         }
 

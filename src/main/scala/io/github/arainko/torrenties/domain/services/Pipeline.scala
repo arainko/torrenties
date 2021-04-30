@@ -1,12 +1,8 @@
 package io.github.arainko.torrenties.domain.services
 
 import io.github.arainko.torrenties.domain.models.state._
-import io.github.arainko.torrenties.domain.models.torrent._
 import io.github.arainko.torrenties.domain.syntax._
-
 import zio._
-import zio.stm.ZSTM
-import zio.stream._
 
 object Pipeline {
 
