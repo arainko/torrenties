@@ -20,18 +20,26 @@ object Main extends App {
 
   private val folderConfig = TypesafeConfig.fromDefaultLoader(FolderConfig.descriptor)
 
-  private val program =
+  private def torrentFile(path: String) =
+    ZStream
+      .fromResource(path)
+      .runCollect
+      .map(_.toArray)
+      .map(ByteVector.apply)
+      .map(Bencode.parseAs[TorrentFile](_))
+      .flatMap(ZIO.fromEither(_).mapError(SerializationError.fromBencodeError))
+
+  private def program(args: List[String]) =
     for {
-      torrentBytes <- ZStream.fromResource("debian.torrent").runCollect.map(_.toArray).map(ByteVector.apply)
-      parsed = Bencode.parseAs[TorrentFile](torrentBytes)
-      torrent <- ZIO.fromEither(parsed).mapError(SerializationError.fromBencodeError)
+      path    <- ZIO.getOrFailWith(NotEnoughArgumentsError)(args.headOption)
+      torrent <- torrentFile(path)
       meta    <- Merger.meta(torrent)
       session <- Session.fromMeta(meta)
       _       <- if (meta.isNotComplete) Client.start(session) else ZIO.unit
     } yield ()
 
   def run(args: List[String]): URIO[ZEnv, ExitCode] =
-    program.exitCode
+    program(args).exitCode
       .injectCustom(
         Tracker.live,
         Merger.live,

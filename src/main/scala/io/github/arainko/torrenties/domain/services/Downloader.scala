@@ -85,7 +85,7 @@ object Downloader {
         torrentFile: TorrentFile,
         pipeline: Pipeline,
         state: PeerInfo
-      )(socket: MessageSocket) =
+      )(socket: MessageSocket)=
         logged(socket.peer) {
           for {
             _ <- socket.handshake(torrentFile)

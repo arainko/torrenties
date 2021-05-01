@@ -1,4 +1,4 @@
-val zioVersion     = "1.0.6"
+val zioVersion     = "1.0.7"
 val monocleVersion = "3.0.0-M4"
 val sttpVersion    = "3.1.7"
 
@@ -21,6 +21,7 @@ lazy val torrenties = (project in file("."))
       "com.github.julien-truffaut"    %% "monocle-macro"                 % monocleVersion,
       "com.softwaremill.sttp.client3" %% "core"                          % sttpVersion,
       "com.softwaremill.sttp.client3" %% "async-http-client-backend-zio" % sttpVersion,
+      "dev.zio"                       %% "zio-prelude"                   % "1.0.0-RC4",
       "dev.zio"                       %% "zio-config"                    % "1.0.4",
       "dev.zio"                       %% "zio-config-typesafe"           % "1.0.4",
       "dev.zio"                       %% "zio"                           % zioVersion,
@@ -33,7 +34,6 @@ lazy val torrenties = (project in file("."))
   .settings(Defaults.itSettings)
 
 testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
-Global / scalacOptions += "-Ymacro-annotations"
 
 ThisBuild / scalafixScalaBinaryVersion := CrossVersion.binaryScalaVersion(scalaVersion.value)
 ThisBuild / scalafixDependencies += "com.github.liancheng" %% "organize-imports" % "0.5.0"

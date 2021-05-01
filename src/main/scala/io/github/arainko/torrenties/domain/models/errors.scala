@@ -8,6 +8,8 @@ import scala.util.control.NoStackTrace
 object errors {
   sealed trait ApplicationError extends NoStackTrace
 
+  case object NotEnoughArgumentsError extends ApplicationError
+
   sealed trait TrackerError extends ApplicationError
 
   object TrackerError {
