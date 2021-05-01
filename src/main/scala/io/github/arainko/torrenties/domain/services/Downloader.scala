@@ -88,7 +88,7 @@ object Downloader {
       )(socket: MessageSocket)=
         logged(socket.peer) {
           for {
-            _ <- socket.handshake(torrentFile)
+            _ <- socket.initializeHandshake(torrentFile)
             _ <- socket.writeMessage(Interested)
             _ <- socket.readMessage
               .flatMap(msg => updatePeerState(msg, state, socket).as(msg))

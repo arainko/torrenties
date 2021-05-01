@@ -52,8 +52,8 @@ object Binary {
     Encoder { message: PeerMessage =>
       message match {
         case KeepAlive     => uint32.encode(0)
-        case Choke         => lengthAndId.encode(1L ~ 1)
-        case Unchoke       => lengthAndId.encode(1L ~ 2)
+        case Choke         => lengthAndId.encode(1L ~ 0)
+        case Unchoke       => lengthAndId.encode(1L ~ 1)
         case Interested    => lengthAndId.encode(1L ~ 2)
         case NotInterested => lengthAndId.encode(1L ~ 3)
         case Have(index)   => (lengthAndId ~ uint32t).encode(5L ~ 4 ~ index)

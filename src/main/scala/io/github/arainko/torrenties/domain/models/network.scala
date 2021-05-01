@@ -3,6 +3,8 @@ package io.github.arainko.torrenties.domain.models
 import io.github.arainko.torrenties.domain.models.network.PeerMessage._
 import io.github.arainko.torrenties.domain.models.torrent._
 import scodec.bits.{BitVector, ByteVector}
+import zio.nio.core.SocketAddress
+import zio.nio.core.InetSocketAddress
 
 object network {
   final case class IPAddress(value: String)          extends AnyVal
@@ -25,6 +27,25 @@ object network {
     lazy val address: IPAddress = IPAddress(s"${seg1.value}.${seg2.value}.${seg3.value}.${seg4.value}")
 
     override def toString: String = s"${seg1.value}.${seg2.value}.${seg3.value}.${seg4.value}:${port.value}"
+  }
+
+  object PeerAddress {
+
+    def fromSocketAddress(address: SocketAddress): Option[PeerAddress] =
+      for {
+        narrowed <- address match {
+          case address: InetSocketAddress => Some(address)
+          case _                          => None
+        }
+        address <- narrowed.address
+        port     = Port(narrowed.port)
+        segments = address.toString.tail.split('.')
+        seg1 <- segments.headOption.flatMap(_.toIntOption).map(Segment)
+        seg2 <- segments.drop(1).headOption.flatMap(_.toIntOption).map(Segment)
+        seg3 <- segments.drop(2).headOption.flatMap(_.toIntOption).map(Segment)
+        seg4 <- segments.drop(3).headOption.flatMap(_.toIntOption).map(Segment)
+      } yield PeerAddress(seg1, seg2, seg3, seg4, port)
+
   }
 
   final case class Handshake(
