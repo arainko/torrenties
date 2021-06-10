@@ -12,7 +12,6 @@ import zio.logging._
 import zio.nio.channels._
 import zio.nio.core.SocketAddress
 import zio.stream._
-import zio.nio.core.InetSocketAddress
 
 object MessageSocket {
 

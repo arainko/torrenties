@@ -1,15 +1,11 @@
 package io.github.arainko.torrenties.domain.services
 
-import zio.stream.ZStream
-
+import io.github.arainko.torrenties.config.FolderConfig
+import zio._
+import zio.logging.Logging
 import zio.nio.channels._
 import zio.nio.core.SocketAddress
-import zio.logging.Logging
-import zio.ZIO
-import io.github.arainko.torrenties.config.FolderConfig
-import zio.Has
-import zio.Fiber
-import zio.ZManaged
+import zio.stream.ZStream
 
 object Server {
 

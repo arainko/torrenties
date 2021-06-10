@@ -37,6 +37,7 @@ final case class Uploader(socket: MessageSocket, session: Session, folderPath: J
       _ <- socket.awaitHandshake(session.torrent)
       _ <- currentBitfield.flatMap(socket.writeMessage)
       _ <- socket.readMessage.repeatUntil(_ == Interested)
+      _ <- socket.writeMessage(Unchoke)
       _ <- AsynchronousFileChannel.open(filePath, options).use(commLoop)
     } yield ()
 

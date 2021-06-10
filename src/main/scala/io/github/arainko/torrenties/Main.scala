@@ -35,6 +35,7 @@ object Main extends App {
       torrent <- torrentFile(path)
       meta    <- Merger.meta(torrent)
       session <- Session.fromMeta(meta)
+      _       <- Server.start(6881, session).useNow.fork
       _       <- if (meta.isNotComplete) Client.start(session) else ZIO.unit
     } yield ()
 

@@ -37,3 +37,4 @@ testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
 
 ThisBuild / scalafixScalaBinaryVersion := CrossVersion.binaryScalaVersion(scalaVersion.value)
 ThisBuild / scalafixDependencies += "com.github.liancheng" %% "organize-imports" % "0.5.0"
+Compile / run / fork := true
